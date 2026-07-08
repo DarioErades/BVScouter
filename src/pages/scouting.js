@@ -381,9 +381,10 @@ function renderVideoPlayer() {
     }
 
     // video local
+    const srcUrl = partido.video_url.startsWith('http') ? partido.video_url : `local-video://${partido.video_url}`;
     return `
         <video id="local-video" preload="metadata">
-            <source src="${partido.video_url}">
+            <source src="${srcUrl}">
             Tu navegador no soporta la reproducción de vídeo
         </video>
         <div class="video-controls" id="video-controls">

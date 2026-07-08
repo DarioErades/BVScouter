@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { initDatabase } from './database.js';
@@ -9,6 +9,8 @@ if (started) {
   app.quit();
 }
 
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
+
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
     width: 1400,
@@ -16,6 +18,7 @@ const createWindow = () => {
     minWidth: 1400,
     minHeight: 900,
     title: 'BVScouter - Scouting Profesional de Voley Playa',
+    autoHideMenuBar: true, // oculta el menú superior por defecto
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -31,10 +34,21 @@ const createWindow = () => {
     mainWindow.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
   }
 
-  // mainWindow.webContents.openDevTools();
 };
 
+import { pathToFileURL } from 'node:url';
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'local-video', privileges: { bypassCSP: true, supportFetchAPI: true, stream: true } }
+]);
+
 app.whenReady().then(() => {
+  protocol.handle('local-video', (request) => {
+    const url = request.url.replace('local-video://', '');
+    const decodedUrl = decodeURIComponent(url);
+    return net.fetch(pathToFileURL(decodedUrl).toString());
+  });
+
   initDatabase();
   createWindow();
 

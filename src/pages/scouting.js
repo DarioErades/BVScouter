@@ -382,11 +382,9 @@ function renderVideoPlayer() {
 
     // video local
     const srcUrl = partido.video_url.startsWith('http') ? partido.video_url : `local-video://video?path=${encodeURIComponent(partido.video_url)}`;
-    const ext = partido.video_url.split('.').pop().toLowerCase();
-    const typeAttr = (ext === 'mov' || ext === 'mp4') ? 'type="video/mp4"' : '';
     return `
         <video id="local-video" preload="metadata">
-            <source src="${srcUrl}" ${typeAttr}>
+            <source src="${srcUrl}">
             Tu navegador no soporta la reproducción de vídeo
         </video>
         <div class="video-controls" id="video-controls">

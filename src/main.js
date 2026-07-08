@@ -43,15 +43,17 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 app.whenReady().then(() => {
-  protocol.handle('local-video', (request) => {
+  protocol.registerFileProtocol('local-video', (request, callback) => {
     try {
       const parsedUrl = new URL(request.url);
       const filePath = parsedUrl.searchParams.get('path');
-      if (!filePath) return new Response('Bad Request', { status: 400 });
-      return net.fetch(pathToFileURL(filePath).toString());
+      if (!filePath) {
+        return callback({ error: -6 });
+      }
+      callback({ path: filePath });
     } catch (e) {
       console.error('Error handling local-video protocol:', e);
-      return new Response('Internal Error', { status: 500 });
+      callback({ error: -2 });
     }
   });
 

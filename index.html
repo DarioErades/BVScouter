@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BVScouter - Scouting Profesional de Voley Playa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+    <div id="app">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-logo">
+                <span class="logo-icon">🏐</span>
+                <span class="logo-text">BVScouter</span>
+            </div>
+            <ul class="sidebar-nav">
+                <li><a href="#" data-page="dashboard" class="nav-link active"><span class="nav-icon">📊</span> Dashboard</a></li>
+                <li><a href="#" data-page="jugadores" class="nav-link"><span class="nav-icon">👥</span> Jugadores</a></li>
+                <li><a href="#" data-page="nuevo-partido" class="nav-link"><span class="nav-icon">➕</span> Nuevo Partido</a></li>
+                <li><a href="#" data-page="guia" class="nav-link"><span class="nav-icon">📖</span> Guía de Uso</a></li>
+            </ul>
+            <div class="sidebar-footer">
+                <p class="version">v1.0.0</p>
+            </div>
+        </nav>
+        <main id="content" class="content">
+            <!-- las páginas se cargan aquí -->
+        </main>
+    </div>
+    <div id="toast-container" class="toast-container"></div>
+    <script type="module" src="/src/renderer.js"></script>
+</body>
+</html>

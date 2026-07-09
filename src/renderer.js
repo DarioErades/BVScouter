@@ -16,7 +16,6 @@ import { registerJugadores } from './pages/jugadores.js';
 import { registerNuevoPartido } from './pages/nuevo-partido.js';
 import { registerScouting } from './pages/scouting.js';
 import { registerInforme } from './pages/informe.js';
-import { registerGuia } from './pages/guia.js';
 
 // registramos todas las paginas
 registerDashboard();
@@ -24,7 +23,6 @@ registerJugadores();
 registerNuevoPartido();
 registerScouting();
 registerInforme();
-registerGuia();
 
 // navegacion del sidebar
 document.querySelectorAll('.nav-link').forEach(link => {

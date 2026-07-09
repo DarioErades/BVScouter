@@ -349,62 +349,65 @@ function renderScoutingUI(container) {
                 </div>
             </div>
             <!-- Modal para ajustes del partido -->
-            <div id="modal-ajustes-partido" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; backdrop-filter: blur(4px);">
-                <div class="modal-content card" style="background: #1e293b; border: 1px solid #334155; padding: 24px; border-radius: 12px; width: 500px; max-width: 90%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
-                    <h3 style="margin-top: 0; margin-bottom: 16px; color: white; font-size: 1.2rem;">⚙️ Ajustes del Partido</h3>
-                    
-                    <div style="margin-bottom: 16px;">
-                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Torneo</label>
-                        <input type="text" id="ajustes-torneo" class="form-input" style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px;">
+            <div class="attack-modal" id="modal-ajustes-partido" style="display: none;">
+                <div class="notes-modal-content" style="max-width: 500px;">
+                    <div class="notes-header">
+                        <h3>⚙️ Ajustes del Partido</h3>
+                        <button id="btn-ajustes-cancelar-x" class="btn btn-sm btn-secondary">✖</button>
                     </div>
+                    <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                        <div>
+                            <label class="form-label">Torneo</label>
+                            <input type="text" id="ajustes-torneo" class="form-input" style="width: 100%;">
+                        </div>
 
-                    <div style="margin-bottom: 16px;">
-                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Fase</label>
-                        <select id="ajustes-fase" class="form-select" style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px; height: 38px;">
-                            <option value="">Seleccionar fase...</option>
-                            <option value="Fase de Grupos">Fase de Grupos</option>
-                            <option value="Dieciseisavos">Dieciseisavos</option>
-                            <option value="Octavos de Final">Octavos de Final</option>
-                            <option value="Cuartos de Final">Cuartos de Final</option>
-                            <option value="Semifinal">Semifinal</option>
-                            <option value="Partido por el Bronce">Partido por el Bronce</option>
-                            <option value="Final">Final</option>
-                        </select>
-                    </div>
+                        <div>
+                            <label class="form-label">Fase</label>
+                            <select id="ajustes-fase" class="form-input" style="width: 100%; height: 38px;">
+                                <option value="">Seleccionar fase...</option>
+                                <option value="Fase de Grupos">Fase de Grupos</option>
+                                <option value="Dieciseisavos">Dieciseisavos</option>
+                                <option value="Octavos de Final">Octavos de Final</option>
+                                <option value="Cuartos de Final">Cuartos de Final</option>
+                                <option value="Semifinal">Semifinal</option>
+                                <option value="Partido por el Bronce">Partido por el Bronce</option>
+                                <option value="Final">Final</option>
+                            </select>
+                        </div>
 
-                    <div style="margin-bottom: 16px;">
-                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Origen del Vídeo</label>
-                        <div style="display: flex; gap: 16px; margin-top: 6px;">
-                            <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                                <input type="radio" name="ajustes-video-tipo" value="youtube"> YouTube
-                            </label>
-                            <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                                <input type="radio" name="ajustes-video-tipo" value="local"> Archivo Local
-                            </label>
-                            <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                                <input type="radio" name="ajustes-video-tipo" value="ninguno"> Sin vídeo
-                            </label>
+                        <div>
+                            <label class="form-label">Origen del Vídeo</label>
+                            <div style="display: flex; gap: 16px; margin-top: 6px;">
+                                <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                    <input type="radio" name="ajustes-video-tipo" value="youtube"> YouTube
+                                </label>
+                                <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                    <input type="radio" name="ajustes-video-tipo" value="local"> Archivo Local
+                                </label>
+                                <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                    <input type="radio" name="ajustes-video-tipo" value="ninguno"> Sin vídeo
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Input YouTube -->
+                        <div id="ajustes-group-youtube" style="display: none;">
+                            <label class="form-label">Enlace de YouTube</label>
+                            <input type="text" id="ajustes-youtube-url" class="form-input" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%;">
+                        </div>
+
+                        <!-- Input Local -->
+                        <div id="ajustes-group-local" style="display: none;">
+                            <label class="form-label">Archivo de Vídeo Local</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="ajustes-local-path" class="form-input" readonly style="flex: 1; background: #0f172a; color: #94a3b8; cursor: not-allowed; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <button class="btn btn-secondary" id="btn-ajustes-elegir-local">Seleccionar...</button>
+                            </div>
                         </div>
                     </div>
-
-                    <!-- Input YouTube -->
-                    <div id="ajustes-group-youtube" style="margin-bottom: 20px; display: none;">
-                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Enlace de YouTube</label>
-                        <input type="text" id="ajustes-youtube-url" class="form-input" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px;">
-                    </div>
-
-                    <!-- Input Local -->
-                    <div id="ajustes-group-local" style="margin-bottom: 20px; display: none;">
-                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Archivo de Vídeo Local</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="ajustes-local-path" class="form-input" readonly style="flex: 1; background: #0f172a; border: 1px solid #334155; color: #94a3b8; padding: 8px; border-radius: 6px; cursor: not-allowed; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            <button class="btn btn-secondary" id="btn-ajustes-elegir-local">Seleccionar...</button>
-                        </div>
-                    </div>
-
-                    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+                    <div class="notes-footer" style="display: flex; gap: 12px; justify-content: flex-end;">
                         <button class="btn btn-secondary" id="btn-ajustes-cancelar">Cancelar</button>
-                        <button class="btn btn-primary" id="btn-ajustes-guardar">Guardar Cambios</button>
+                        <button class="btn btn-primary" id="btn-ajustes-guardar">💾 Guardar Cambios</button>
                     </div>
                 </div>
             </div>
@@ -1777,11 +1780,14 @@ function setupAjustesEvents() {
         console.warn("[Ajustes] No se encontró el botón btn-ajustes-partido en el DOM");
     }
 
-    btnCancel?.addEventListener('click', () => {
-        console.log("[Ajustes] Click en Cancelar");
+    const closeAjustesModal = () => {
+        console.log("[Ajustes] Click en Cancelar/Cerrar");
         if (modal) modal.style.display = 'none';
         scoutingState.wizardModalAbierto = false;
-    });
+    };
+
+    btnCancel?.addEventListener('click', closeAjustesModal);
+    document.getElementById('btn-ajustes-cancelar-x')?.addEventListener('click', closeAjustesModal);
 
     btnElegirLocal?.addEventListener('click', async () => {
         console.log("[Ajustes] Click en Elegir Vídeo Local");

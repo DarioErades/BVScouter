@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { initDatabase } from './database.js';
@@ -57,6 +57,14 @@ app.whenReady().then(() => {
       callback({ error: -2 });
     }
   });
+
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*'] },
+    (details, callback) => {
+      details.requestHeaders['Referer'] = 'https://www.youtube.com';
+      callback({ cancel: false, requestHeaders: details.requestHeaders });
+    }
+  );
 
   initDatabase();
   createWindow();

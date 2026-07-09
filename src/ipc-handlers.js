@@ -290,7 +290,8 @@ async function resolverVideoPath(partido) {
     // descargamos con yt-dlp en formato mp4
     const escapedUrl = partido.video_url.replace(/"/g, '\\"');
     const escapedOut = outputPath.replace(/"/g, '\\"');
-    const cmd = `yt-dlp -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best" --merge-output-format mp4 -o "${escapedOut}" "${escapedUrl}"`;
+    const ytdlp = fs.existsSync('/home/dario/.local/bin/yt-dlp') ? '/home/dario/.local/bin/yt-dlp' : 'yt-dlp';
+    const cmd = `${ytdlp} -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best" --merge-output-format mp4 -o "${escapedOut}" "${escapedUrl}"`;
     await execAsync(cmd, { timeout: 600000 });
 
     if (!fs.existsSync(outputPath)) {

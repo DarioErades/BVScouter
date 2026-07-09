@@ -1767,7 +1767,15 @@ function setupAjustesEvents() {
                 }
                 
                 if (modal) {
-                    modal.style.display = 'flex';
+                    modal.style.setProperty('display', 'flex', 'important');
+                    modal.style.setProperty('position', 'fixed', 'important');
+                    modal.style.setProperty('top', '0', 'important');
+                    modal.style.setProperty('left', '0', 'important');
+                    modal.style.setProperty('width', '100vw', 'important');
+                    modal.style.setProperty('height', '100vh', 'important');
+                    modal.style.setProperty('z-index', '999999', 'important');
+                    modal.style.setProperty('background-color', 'rgba(10, 14, 23, 0.95)', 'important');
+                    console.log("[Ajustes] Estilos del modal forzados correctamente a flex.");
                 } else {
                     console.error("[Ajustes] No se encontró el elemento modal-ajustes-partido en el DOM!");
                 }

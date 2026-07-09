@@ -483,7 +483,7 @@ function renderVideoPlayer() {
         }
         return `
             <iframe id="youtube-player"
-                src="https://www.youtube-nocookie.com/embed/${youtubeId}?enablejsapi=1&rel=0"
+                src="https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&rel=0&origin=https://www.youtube.com"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowfullscreen
                 sandbox="allow-scripts allow-same-origin allow-presentation">

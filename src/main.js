@@ -61,7 +61,12 @@ app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*'] },
     (details, callback) => {
-      details.requestHeaders['Referer'] = 'https://www.youtube.com';
+      try {
+        const url = new URL(details.url);
+        details.requestHeaders['Referer'] = `https://${url.hostname}`;
+      } catch (e) {
+        details.requestHeaders['Referer'] = 'https://www.youtube.com';
+      }
       callback({ cancel: false, requestHeaders: details.requestHeaders });
     }
   );

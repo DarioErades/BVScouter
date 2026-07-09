@@ -362,7 +362,7 @@ export function registerInforme() {
                     </div>
 
                     <div class="report-section" id="section-highlights" ${partido.video_tipo === 'local' ? '' : 'style="display:none;"'}>
-                        <h2 class="report-section-title">🎬 Generador de Highlights</h2>
+                        <h2 class="report-section-title">🎬 Generador de Vídeos</h2>
                         <div class="report-grid" style="background: #1a2332; padding: 20px; border-radius: 12px; border: 1px solid #1e293b;">
                             <div style="flex: 1; min-width: 200px;">
                                 <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Jugador</label>

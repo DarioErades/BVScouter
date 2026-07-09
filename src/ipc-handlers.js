@@ -271,8 +271,8 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   }
 
   const { canceled, filePath } = await dialog.showSaveDialog({
-    title: 'Guardar Highlights',
-    defaultPath: `highlights_partido_${partidoId}.mp4`,
+    title: 'Guardar Vídeo',
+    defaultPath: `video_partido_${partidoId}.mp4`,
     filters: [
       { name: 'Vídeo MP4', extensions: ['mp4'] }
     ]

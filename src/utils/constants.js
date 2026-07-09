@@ -1,27 +1,68 @@
 // constantes del scouting
 
 export const TIPOS_ACCION = {
-    saque: 'Saque',
-    recepcion: 'Recepción',
-    colocacion: 'Colocación',
-    ataque: 'Ataque',
-    bloqueo: 'Bloqueo',
-    defensa: 'Defensa'
+    saque: { label: 'Saque', key: 's' },
+    recepcion: { label: 'Recepción', key: 'r' },
+    colocacion: { label: 'Colocación', key: 'c' },
+    ataque: { label: 'Ataque', key: 'a' },
+    bloqueo: { label: 'Bloqueo', key: 'b' },
+    defensa: { label: 'Defensa', key: 'd' },
+    rival: { label: 'Acierto Rival', key: '' },
+    error_general: { label: 'Error General', key: '' }
 };
 
 export const SUBTIPOS = {
-    saque: ['Flotante', 'Potente', 'Topspin', 'Skyball'],
-    recepcion: ['Perfecta (3)', 'Buena (2)', 'Mala (1)', 'Error (0)'],
-    colocacion: ['Manos', 'Antebrazos', 'Salto'],
-    ataque: ['Remate Potente', 'Cut Shot', 'Line Shot', 'Poke', 'Rainbow', 'Segundo Toque'],
-    bloqueo: ['Stuff Block', 'Touch', 'Split', 'Peel'],
-    defensa: ['Dig', 'Emergency', 'Free Ball']
+    saque: [
+        { label: 'Flotante', key: 'f' },
+        { label: 'Potente', key: 'p' },
+        { label: 'Topspin', key: 't' },
+        { label: 'Skyball', key: 'y' }
+    ],
+    recepcion: [
+        { label: 'Perfecta (3)', key: '3' },
+        { label: 'Buena (2)', key: '2' },
+        { label: 'Mala (1)', key: '1' },
+        { label: 'Error (0)', key: '0' }
+    ],
+    colocacion: [
+        { label: 'Manos', key: 'm' },
+        { label: 'Antebrazos', key: 'a' },
+        { label: 'Salto', key: 's' }
+    ],
+    ataque: [
+        { label: 'Remate Potente', key: 'r' },
+        { label: 'Cut Shot', key: 'c' },
+        { label: 'Line Shot', key: 'l' },
+        { label: 'Poke', key: 'p' },
+        { label: 'Rainbow', key: 'b' },
+        { label: 'Segundo Toque', key: '2' }
+    ],
+    bloqueo: [
+        { label: 'Stuff Block', key: 's' },
+        { label: 'Touch', key: 't' },
+        { label: 'Split', key: 'p' },
+        { label: 'Peel', key: 'l' }
+    ],
+    defensa: [
+        { label: 'Defensa (1)', key: '1' },
+        { label: 'Defensa (2)', key: '2' },
+        { label: 'Defensa (3)', key: '3' },
+        { label: 'Defensa (4)', key: '4' },
+        { label: 'Defensa (5)', key: '5' },
+        { label: 'Defensa (6)', key: '6' },
+        { label: 'Defensa (7)', key: '7' },
+        { label: 'Defensa (8)', key: '8' },
+        { label: 'Defensa (9)', key: '9' },
+        { label: 'Defensa (10)', key: '0' },
+        { label: 'Error (-)', key: '-' }
+    ]
 };
 
 export const RESULTADOS = {
     punto: { label: 'Punto', icon: '✓', class: 'punto' },
     error: { label: 'Error', icon: '✗', class: 'error' },
-    continuidad: { label: 'Continuidad', icon: '↺', class: 'continuidad' }
+    continuidad: { label: 'Continuidad', icon: '↺', class: 'continuidad' },
+    bloqueado: { label: 'Bloqueado', icon: '🛡️', class: 'bloqueado' }
 };
 
 export const COMPLEJOS = {
@@ -35,9 +76,6 @@ export const SHORTCUTS = {
     '1': { action: 'selectPlayer', value: 1 },
     '2': { action: 'selectPlayer', value: 2 },
 
-    // cambiar complejo
-    'q': { action: 'toggleComplex' },
-
     // tipos de accion
     's': { action: 'selectAction', value: 'saque' },
     'r': { action: 'selectAction', value: 'recepcion' },
@@ -46,17 +84,14 @@ export const SHORTCUTS = {
     'b': { action: 'selectAction', value: 'bloqueo' },
     'd': { action: 'selectAction', value: 'defensa' },
 
-    // resultados
-    'Enter': { action: 'setResult', value: 'punto' },
-    'Backspace': { action: 'setResult', value: 'error' },
-    'Tab': { action: 'setResult', value: 'continuidad' },
+    // resultados de la ultima accion
+    'Enter': { action: 'markLastActionAsPoint' },
+    'Backspace': { action: 'markLastActionAsError' },
 
     // deshacer
     'z': { action: 'undo' },
 
     // marcador y sets
-    'p': { action: 'addPoint' },
-    'n': { action: 'newSet' },
 
     // video
     ' ': { action: 'videoPlayPause' },

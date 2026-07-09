@@ -643,7 +643,6 @@ function setupKeyboardShortcuts(container) {
                     });
                 } else {
                     scoutingState.enterTimer = setTimeout(() => {
-                        markLastAction('punto');
                         scoutingState.enterTimer = null;
                     }, 300);
                 }
@@ -718,15 +717,6 @@ function setupKeyboardShortcuts(container) {
 
             case 'undo':
                 deshacerUltimaAccion();
-                break;
-
-            case 'newSet':
-                scoutingState.setActual++;
-                scoutingState.marcadorLocal = 0;
-                scoutingState.marcadorRival = 0;
-                scoutingState.equipoAlSaque = 'local';
-                updateScoreUI();
-                showToast(`Set ${scoutingState.setActual} iniciado`, 'info');
                 break;
 
             // controles de video

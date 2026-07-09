@@ -12,23 +12,105 @@ export function calcularStats(acciones, jugador1Id, jugador2Id) {
 function calcularStatsJugador(acciones, jugadorId) {
     const accionesJugador = acciones.filter(a => a.jugador_id === jugadorId);
 
-    // side-out: rallies ganados en K1
-    const accionesK1 = accionesJugador.filter(a => a.complejo === 'K1');
-    const puntosK1 = accionesK1.filter(a => a.resultado === 'punto').length;
-    const totalK1 = accionesK1.length || 1;
-    const sideOutPct = Math.round((puntosK1 / totalK1) * 100);
+    // K1 a la primera vs K1 en transicion
+    const ralliesK1 = {};
+    acciones.forEach(a => {
+        if (a.complejo === 'K1') {
+            const key = `${a.set_numero}-${a.marcador_local}-${a.marcador_rival}`;
+            if (!ralliesK1[key]) ralliesK1[key] = [];
+            ralliesK1[key].push(a);
+        }
+    });
+
+    let fbsoPuntos = 0;
+    let transPuntos = 0;
+    let fbsoOportunidades = 0;
+    let transOportunidades = 0;
+
+    Object.values(ralliesK1).forEach(rally => {
+        const ataques = rally.filter(a => a.tipo_accion === 'ataque');
+        const defensas = rally.filter(a => a.tipo_accion === 'defensa');
+        const isFBSO = ataques.length <= 1 && defensas.length === 0;
+
+        const puntoRally = rally.some(a => a.resultado === 'punto');
+        const recibioJugador = rally.some(a => a.tipo_accion === 'recepcion' && a.jugador_id === jugadorId);
+        const atacoJugador = rally.some(a => a.tipo_accion === 'ataque' && a.jugador_id === jugadorId);
+        const hizoPunto = rally.some(a => a.resultado === 'punto' && a.jugador_id === jugadorId);
+        
+        // En voley playa, el side-out se atribuye a quien recibe.
+        // Si no hay recepcion registrada, se lo atribuimos a quien atacó o hizo el punto.
+        const hayRecepcionEnRally = rally.some(a => a.tipo_accion === 'recepcion');
+        const participo = hayRecepcionEnRally ? recibioJugador : (atacoJugador || hizoPunto);
+
+        if (participo) {
+            if (isFBSO) {
+                fbsoOportunidades++;
+                if (puntoRally) fbsoPuntos++;
+            } else {
+                transOportunidades++;
+                if (puntoRally) transPuntos++;
+            }
+        }
+    });
+
+    const totalK1 = fbsoOportunidades + transOportunidades;
+    const puntosK1 = fbsoPuntos + transPuntos;
+
+    const sideOutFirstPct = totalK1 > 0 ? Math.round((fbsoPuntos / totalK1) * 100) : 0;
+    const sideOutTransPct = totalK1 > 0 ? Math.round((puntosK1 / totalK1) * 100) : 0;
+
+    // Marcar ataques con fase (K1 vs K2)
+    const ralliesAll = {};
+    acciones.forEach(a => {
+        const key = `${a.set_numero}-${a.marcador_local}-${a.marcador_rival}`;
+        if (!ralliesAll[key]) ralliesAll[key] = [];
+        ralliesAll[key].push(a);
+    });
+
+    Object.values(ralliesAll).forEach(rally => {
+        let firstAttackDone = false;
+        rally.forEach(a => {
+            if (a.tipo_accion === 'ataque') {
+                if (a.complejo === 'K1' && !firstAttackDone) {
+                    a._fase = 'K1';
+                    firstAttackDone = true;
+                } else {
+                    a._fase = 'K2';
+                }
+            }
+        });
+    });
 
     // distribucion de ataques
     const ataques = accionesJugador.filter(a => a.tipo_accion === 'ataque');
-    const distribucionAtaques = {};
+    const distribucionAtaquesGeneral = {};
+    const distribucionAtaquesK1 = {};
+    const distribucionAtaquesK2 = {};
+    
     ataques.forEach(a => {
         const sub = a.subtipo || 'Sin definir';
-        if (!distribucionAtaques[sub]) {
-            distribucionAtaques[sub] = { total: 0, puntos: 0, errores: 0 };
+        const isK1 = a._fase === 'K1';
+        
+        // General
+        if (!distribucionAtaquesGeneral[sub]) distribucionAtaquesGeneral[sub] = { total: 0, puntos: 0, errores: 0 };
+        distribucionAtaquesGeneral[sub].total++;
+        if (a.resultado === 'punto') distribucionAtaquesGeneral[sub].puntos++;
+        if (a.resultado === 'error') distribucionAtaquesGeneral[sub].errores++;
+
+        // K1
+        if (isK1) {
+            if (!distribucionAtaquesK1[sub]) distribucionAtaquesK1[sub] = { total: 0, puntos: 0, errores: 0 };
+            distribucionAtaquesK1[sub].total++;
+            if (a.resultado === 'punto') distribucionAtaquesK1[sub].puntos++;
+            if (a.resultado === 'error') distribucionAtaquesK1[sub].errores++;
+        } 
+        // K2
+        else {
+            if (!distribucionAtaquesK2[sub]) distribucionAtaquesK2[sub] = { total: 0, puntos: 0, errores: 0 };
+            distribucionAtaquesK2[sub].total++;
+            if (a.resultado === 'punto') distribucionAtaquesK2[sub].puntos++;
+            if (a.resultado === 'error') distribucionAtaquesK2[sub].errores++;
         }
-        distribucionAtaques[sub].total++;
-        if (a.resultado === 'punto') distribucionAtaques[sub].puntos++;
-        if (a.resultado === 'error') distribucionAtaques[sub].errores++;
     });
 
     // distribucion de saques
@@ -48,11 +130,17 @@ function calcularStatsJugador(acciones, jugadorId) {
     const recepciones = accionesJugador.filter(a => a.tipo_accion === 'recepcion');
     let calidadRecepcion = 0;
     let totalRecepciones = recepciones.length || 1;
+    const distribucionRecepcion = {};
     recepciones.forEach(a => {
-        const match = (a.subtipo || '').match(/\((\d)\)/);
+        const sub = a.subtipo || 'Sin definir';
+        if (!distribucionRecepcion[sub]) distribucionRecepcion[sub] = 0;
+        distribucionRecepcion[sub]++;
+
+        const match = (a.subtipo || '').match(/\((\d+)\)/);
         if (match) calidadRecepcion += parseInt(match[1]);
     });
-    const recepcionPromedio = (calidadRecepcion / totalRecepciones).toFixed(1);
+    // Sacamos la media sobre 10 (asumiendo que 3 es la nota máxima por acción)
+    const recepcionPromedio = ((calidadRecepcion / totalRecepciones) * (10 / 3)).toFixed(1);
 
     // eficacia de ataque
     const killsAtaque = ataques.filter(a => a.resultado === 'punto').length;
@@ -69,35 +157,82 @@ function calcularStatsJugador(acciones, jugadorId) {
         distribucionBloqueos[sub]++;
     });
 
-    // golpes mas repetidos (todos los tipos de accion)
-    const golpesMasRepetidos = {};
-    accionesJugador.forEach(a => {
-        const key = `${a.tipo_accion} - ${a.subtipo || 'Sin definir'}`;
-        if (!golpesMasRepetidos[key]) golpesMasRepetidos[key] = 0;
-        golpesMasRepetidos[key]++;
+    // defensas
+    const defensas = accionesJugador.filter(a => a.tipo_accion === 'defensa');
+    let calidadDefensa = 0;
+    let defensasPuntuadas = 0;
+    let erroresDefensa = 0;
+    defensas.forEach(a => {
+        if (a.resultado === 'error') {
+            erroresDefensa++;
+        } else {
+            const match = (a.subtipo || '').match(/\((\d+)\)/);
+            if (match) {
+                calidadDefensa += parseInt(match[1]);
+                defensasPuntuadas++;
+            }
+        }
+    });
+    const defensaPromedio = defensasPuntuadas > 0 ? (calidadDefensa / defensasPuntuadas).toFixed(1) : '0.0';
+
+    // golpes mas repetidos (solo ataques, ignoramos los fallos)
+    const golpesRepetidosGeneral = {};
+    const golpesRepetidosK1 = {};
+    const golpesRepetidosK2 = {};
+    
+    ataques.forEach(a => {
+        if (a.resultado === 'error') return; // si es fallo no cuenta
+        const key = a.subtipo || 'Sin definir';
+        
+        if (!golpesRepetidosGeneral[key]) golpesRepetidosGeneral[key] = 0;
+        golpesRepetidosGeneral[key]++;
+        
+        if (a._fase === 'K1') {
+            if (!golpesRepetidosK1[key]) golpesRepetidosK1[key] = 0;
+            golpesRepetidosK1[key]++;
+        } else {
+            if (!golpesRepetidosK2[key]) golpesRepetidosK2[key] = 0;
+            golpesRepetidosK2[key]++;
+        }
     });
 
     // ordenamos por frecuencia
-    const golpesOrdenados = Object.entries(golpesMasRepetidos)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 8);
+    const getTop8 = (dict) => Object.entries(dict).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    
+    const golpesOrdenadosGeneral = getTop8(golpesRepetidosGeneral);
+    const golpesOrdenadosK1 = getTop8(golpesRepetidosK1);
+    const golpesOrdenadosK2 = getTop8(golpesRepetidosK2);
 
     return {
         totalAcciones: accionesJugador.length,
-        sideOutPct,
-        puntosK1,
-        totalK1: accionesK1.length,
-        distribucionAtaques,
+        sideOutFirstPct,
+        fbsoPuntos,
+        fbsoOportunidades,
+        sideOutTransPct,
+        transPuntos,
+        transOportunidades,
+        puntosK1: fbsoPuntos + transPuntos,
+        totalK1: fbsoOportunidades + transOportunidades,
+        distribucionAtaquesGeneral,
+        distribucionAtaquesK1,
+        distribucionAtaquesK2,
         distribucionSaques,
         recepcionPromedio: parseFloat(recepcionPromedio),
         totalRecepciones: recepciones.length,
+        distribucionRecepcion,
         eficaciaAtaque,
         totalAtaques: ataques.length,
         killsAtaque,
         erroresAtaque,
         distribucionBloqueos,
         totalBloqueos: bloqueos.length,
-        golpesMasRepetidos: golpesOrdenados
+        defensaPromedio,
+        erroresDefensa,
+        golpesMasRepetidosGeneral: golpesOrdenadosGeneral,
+        golpesMasRepetidosK1: golpesOrdenadosK1,
+        golpesMasRepetidosK2: golpesOrdenadosK2,
+        puntosDirectos: accionesJugador.filter(a => a.resultado === 'punto' && ['ataque', 'saque', 'bloqueo'].includes(a.tipo_accion)).length,
+        erroresPropios: accionesJugador.filter(a => (a.resultado === 'error' || a.resultado === 'bloqueado') && ['ataque', 'saque', 'recepcion', 'defensa', 'colocacion'].includes(a.tipo_accion)).length
     };
 }
 
@@ -113,11 +248,33 @@ function calcularStatsGenerales(acciones) {
         ? Math.round((puntosK1 / accionesK1.length) * 100)
         : 0;
 
+    // Calcular puntos totales del equipo sumando el máximo marcador local de cada set
+    const sets = [...new Set(acciones.map(a => a.set_numero))];
+    let puntosTotalesEquipo = 0;
+    sets.forEach(s => {
+        const accionesSet = acciones.filter(a => a.set_numero === s);
+        const lastAction = accionesSet[accionesSet.length - 1];
+        let maxScore = parseInt(lastAction.marcador_local) || 0;
+        if (lastAction.resultado === 'punto' && lastAction.tipo_accion !== 'fin_set') {
+            maxScore += 1;
+        }
+        puntosTotalesEquipo += maxScore;
+    });
+
+    // Errores del rival = Puntos totales - Puntos directos propios
+    const puntosDirectosPropios = acciones.filter(a => 
+        a.resultado === 'punto' && 
+        ['ataque', 'saque', 'bloqueo'].includes(a.tipo_accion)
+    ).length;
+    const erroresRival = Math.max(0, puntosTotalesEquipo - puntosDirectosPropios);
+
     return {
         totalAcciones,
         puntos,
         errores,
-        sideOutGeneral
+        sideOutGeneral,
+        erroresRival,
+        puntosTotalesEquipo
     };
 }
 
@@ -149,23 +306,7 @@ export function detectarPatrones(acciones, jugador1Nombre, jugador2Nombre, jugad
             }
         }
 
-        // patron: tendencia de saque
-        const saques = accionesJ.filter(a => a.tipo_accion === 'saque');
-        if (saques.length >= 3) {
-            const tiposSaque = {};
-            saques.forEach(a => {
-                const sub = a.subtipo || 'desconocido';
-                tiposSaque[sub] = (tiposSaque[sub] || 0) + 1;
-            });
-            const fav = Object.entries(tiposSaque).sort((a, b) => b[1] - a[1])[0];
-            const pct = Math.round((fav[1] / saques.length) * 100);
-            if (pct >= 50) {
-                patrones.push({
-                    icon: '🏐',
-                    text: `${nombre} saca "${fav[0]}" el ${pct}% de las veces`
-                });
-            }
-        }
+
 
         // patron: errores frecuentes
         const errores = accionesJ.filter(a => a.resultado === 'error');

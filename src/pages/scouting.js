@@ -416,7 +416,7 @@ function setupEditActionEvents() {
         btnRun.disabled = true;
         btnRun.textContent = '⏳ Generando...';
         try {
-            const path = await window.api.generateVideoHighlights(params.partidoId, filters);
+            const path = await window.api.generateVideoHighlights(scoutingState.partidoId, filters);
             if (path) {
                 showToast('Vídeo generado con éxito', 'success');
                 videosModal.style.display = 'none';

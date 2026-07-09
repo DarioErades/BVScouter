@@ -483,7 +483,7 @@ function renderVideoPlayer() {
         }
         return `
             <iframe id="youtube-player"
-                src="https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&rel=0&origin=https://www.youtube.com"
+                src="https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&rel=0&origin=${window.location.origin}"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowfullscreen
                 sandbox="allow-scripts allow-same-origin allow-presentation">
@@ -513,15 +513,7 @@ function renderVideoPlayer() {
 function setupVideoPlayer(container) {
     const ytIframe = document.getElementById('youtube-player');
     if (ytIframe) {
-        if (!document.getElementById('youtube-api-script')) {
-            const tag = document.createElement('script');
-            tag.id = 'youtube-api-script';
-            tag.src = "https://www.youtube.com/iframe_api";
-            const firstScriptTag = document.getElementsByTagName('script')[0];
-            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-        }
-        
-        window.onYouTubeIframeAPIReady = function() {
+        const initPlayer = () => {
             window.ytPlayer = new YT.Player('youtube-player', {
                 events: {
                     'onReady': () => {
@@ -530,6 +522,19 @@ function setupVideoPlayer(container) {
                 }
             });
         };
+
+        if (window.YT && window.YT.Player) {
+            initPlayer();
+        } else {
+            if (!document.getElementById('youtube-api-script')) {
+                const tag = document.createElement('script');
+                tag.id = 'youtube-api-script';
+                tag.src = "https://www.youtube.com/iframe_api";
+                const firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+            }
+            window.onYouTubeIframeAPIReady = initPlayer;
+        }
         return;
     }
 

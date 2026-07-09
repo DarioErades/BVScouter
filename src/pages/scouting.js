@@ -1691,6 +1691,7 @@ function populateEditSubtipo(tipo, currentValue) {
 }
 
 function setupAjustesEvents() {
+    console.log("[Ajustes] Inicializando setupAjustesEvents...");
     const modal = document.getElementById('modal-ajustes-partido');
     const btnOpen = document.getElementById('btn-ajustes-partido');
     const btnCancel = document.getElementById('btn-ajustes-cancelar');
@@ -1703,78 +1704,128 @@ function setupAjustesEvents() {
     const groupYoutube = document.getElementById('ajustes-group-youtube');
     const groupLocal = document.getElementById('ajustes-group-local');
 
+    console.log("[Ajustes] Elementos encontrados:", {
+        modal: !!modal,
+        btnOpen: !!btnOpen,
+        btnCancel: !!btnCancel,
+        btnSave: !!btnSave,
+        btnElegirLocal: !!btnElegirLocal
+    });
+
     // Cambiar tipo de video
     const radios = document.querySelectorAll('input[name="ajustes-video-tipo"]');
     radios.forEach(radio => {
         radio.addEventListener('change', (e) => {
-            const val = e.target.value;
-            groupYoutube.style.display = val === 'youtube' ? 'block' : 'none';
-            groupLocal.style.display = val === 'local' ? 'block' : 'none';
+            try {
+                const val = e.target.value;
+                console.log("[Ajustes] Cambiado tipo de vídeo a:", val);
+                if (groupYoutube) groupYoutube.style.display = val === 'youtube' ? 'block' : 'none';
+                if (groupLocal) groupLocal.style.display = val === 'local' ? 'block' : 'none';
+            } catch (err) {
+                console.error("[Ajustes] Error en radio change:", err);
+            }
         });
     });
 
-    btnOpen?.addEventListener('click', () => {
-        const p = scoutingState.partido;
-        inputTorneo.value = p.torneo || '';
-        selectFase.value = p.fase || '';
-        
-        const tipo = p.video_tipo || 'ninguno';
-        const targetRadio = document.querySelector(`input[name="ajustes-video-tipo"][value="${tipo}"]`);
-        if (targetRadio) targetRadio.checked = true;
-        
-        groupYoutube.style.display = tipo === 'youtube' ? 'block' : 'none';
-        groupLocal.style.display = tipo === 'local' ? 'block' : 'none';
-        
-        if (tipo === 'youtube') {
-            inputYoutubeUrl.value = p.video_url || '';
-        } else if (tipo === 'local') {
-            inputLocalPath.value = p.video_url || '';
-        } else {
-            inputYoutubeUrl.value = '';
-            inputLocalPath.value = '';
-        }
-        
-        modal.style.display = 'flex';
-        scoutingState.wizardModalAbierto = true;
-    });
+    if (btnOpen) {
+        btnOpen.addEventListener('click', () => {
+            console.log("[Ajustes] Click en botón Abrir Ajustes");
+            try {
+                const p = scoutingState.partido;
+                if (!p) {
+                    console.error("[Ajustes] scoutingState.partido está indefinido!");
+                    return;
+                }
+                
+                if (inputTorneo) inputTorneo.value = p.torneo || '';
+                if (selectFase) selectFase.value = p.fase || '';
+                
+                const tipo = p.video_tipo || 'ninguno';
+                console.log("[Ajustes] Tipo de vídeo del partido actual:", tipo);
+                
+                const targetRadio = document.querySelector(`input[name="ajustes-video-tipo"][value="${tipo}"]`);
+                if (targetRadio) {
+                    targetRadio.checked = true;
+                } else {
+                    const defaultRadio = document.querySelector(`input[name="ajustes-video-tipo"][value="ninguno"]`);
+                    if (defaultRadio) defaultRadio.checked = true;
+                }
+                
+                if (groupYoutube) groupYoutube.style.display = tipo === 'youtube' ? 'block' : 'none';
+                if (groupLocal) groupLocal.style.display = tipo === 'local' ? 'block' : 'none';
+                
+                if (tipo === 'youtube') {
+                    if (inputYoutubeUrl) inputYoutubeUrl.value = p.video_url || '';
+                } else if (tipo === 'local') {
+                    if (inputLocalPath) inputLocalPath.value = p.video_url || '';
+                } else {
+                    if (inputYoutubeUrl) inputYoutubeUrl.value = '';
+                    if (inputLocalPath) inputLocalPath.value = '';
+                }
+                
+                if (modal) {
+                    modal.style.display = 'flex';
+                } else {
+                    console.error("[Ajustes] No se encontró el elemento modal-ajustes-partido en el DOM!");
+                }
+                scoutingState.wizardModalAbierto = true;
+            } catch (err) {
+                console.error("[Ajustes] Error al abrir el modal:", err);
+            }
+        });
+    } else {
+        console.warn("[Ajustes] No se encontró el botón btn-ajustes-partido en el DOM");
+    }
 
     btnCancel?.addEventListener('click', () => {
-        modal.style.display = 'none';
+        console.log("[Ajustes] Click en Cancelar");
+        if (modal) modal.style.display = 'none';
         scoutingState.wizardModalAbierto = false;
     });
 
     btnElegirLocal?.addEventListener('click', async () => {
-        const path = await window.api.openVideoFile();
-        if (path) {
-            inputLocalPath.value = path;
+        console.log("[Ajustes] Click en Elegir Vídeo Local");
+        try {
+            const path = await window.api.openVideoFile();
+            if (path && inputLocalPath) {
+                inputLocalPath.value = path;
+            }
+        } catch (err) {
+            console.error("[Ajustes] Error al seleccionar archivo local:", err);
         }
     });
 
     btnSave?.addEventListener('click', async () => {
-        const torneo = inputTorneo.value.trim();
-        const fase = selectFase.value;
-        const selectedRadio = document.querySelector('input[name="ajustes-video-tipo"]:checked');
-        const tipoVal = selectedRadio ? selectedRadio.value : 'ninguno';
-        
-        let video_tipo = null;
-        let video_url = null;
-        
-        if (tipoVal === 'youtube') {
-            video_tipo = 'youtube';
-            video_url = inputYoutubeUrl.value.trim();
-        } else if (tipoVal === 'local') {
-            video_tipo = 'local';
-            video_url = inputLocalPath.value.trim();
+        console.log("[Ajustes] Click en Guardar Ajustes");
+        try {
+            const torneo = inputTorneo ? inputTorneo.value.trim() : '';
+            const fase = selectFase ? selectFase.value : '';
+            const selectedRadio = document.querySelector('input[name="ajustes-video-tipo"]:checked');
+            const tipoVal = selectedRadio ? selectedRadio.value : 'ninguno';
+            
+            let video_tipo = null;
+            let video_url = null;
+            
+            if (tipoVal === 'youtube') {
+                video_tipo = 'youtube';
+                video_url = inputYoutubeUrl ? inputYoutubeUrl.value.trim() : '';
+            } else if (tipoVal === 'local') {
+                video_tipo = 'local';
+                video_url = inputLocalPath ? inputLocalPath.value.trim() : '';
+            }
+
+            const data = { torneo, fase, video_tipo, video_url };
+            console.log("[Ajustes] Guardando datos del partido:", data);
+            await window.api.updatePartido(scoutingState.partidoId, data);
+            
+            showToast('Ajustes del partido actualizados', 'success');
+            if (modal) modal.style.display = 'none';
+            scoutingState.wizardModalAbierto = false;
+
+            // Recargamos el scouting para aplicar los ajustes y recargar el reproductor
+            router.navigate('scouting', { partidoId: scoutingState.partidoId });
+        } catch (err) {
+            console.error("[Ajustes] Error al guardar cambios:", err);
         }
-
-        const data = { torneo, fase, video_tipo, video_url };
-        await window.api.updatePartido(scoutingState.partidoId, data);
-        
-        showToast('Ajustes del partido actualizados', 'success');
-        modal.style.display = 'none';
-        scoutingState.wizardModalAbierto = false;
-
-        // Recargamos el scouting para aplicar los ajustes y recargar el reproductor
-        router.navigate('scouting', { partidoId: scoutingState.partidoId });
     });
 }

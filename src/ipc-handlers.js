@@ -326,7 +326,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
 
   if (canceled || !filePath) return null;
 
-  let query = 'SELECT video_timestamp, marcador_local, marcador_rival FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
+  let query = 'SELECT video_timestamp, marcador_local, marcador_rival, set_numero, complejo FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
   const params = [partidoId];
 
   if (filters.jugador_id) {
@@ -357,10 +357,26 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   const preMargin = filters.pre_margin !== undefined ? parseFloat(filters.pre_margin) : 3;
   const postMargin = filters.post_margin !== undefined ? parseFloat(filters.post_margin) : 1;
 
-  let intervals = acciones.map(a => ({
-      start: Math.max(0, a.video_timestamp - preMargin),
-      end: a.video_timestamp + postMargin,
-      score: `${a.marcador_local || 0} - ${a.marcador_rival || 0}`
+  // agrupar acciones que pertenezcan a la misma fase del mismo punto para evitar microcortes
+  const grupos = {};
+  acciones.forEach(a => {
+      const key = `${a.set_numero}_${a.marcador_local}_${a.marcador_rival}_${a.complejo}`;
+      if (!grupos[key]) {
+          grupos[key] = {
+              minTime: a.video_timestamp,
+              maxTime: a.video_timestamp,
+              score: `${a.marcador_local || 0} - ${a.marcador_rival || 0}`
+          };
+      } else {
+          grupos[key].minTime = Math.min(grupos[key].minTime, a.video_timestamp);
+          grupos[key].maxTime = Math.max(grupos[key].maxTime, a.video_timestamp);
+      }
+  });
+
+  let intervals = Object.values(grupos).map(g => ({
+      start: Math.max(0, g.minTime - preMargin),
+      end: g.maxTime + postMargin,
+      score: g.score
   }));
   
   if (intervals.length > 0) {

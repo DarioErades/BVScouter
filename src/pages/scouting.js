@@ -110,6 +110,7 @@ function renderScoutingUI(container) {
                     <button class="btn btn-sm btn-primary" id="btn-finalizar-set">🏁 Finalizar Set</button>
                     <button class="btn btn-sm btn-secondary" id="btn-notas-partido">📝 Notas</button>
                     <button class="btn btn-sm btn-secondary" id="btn-guardar-partido">💾 Guardar</button>
+                    <button class="btn btn-sm btn-secondary" id="btn-generador-videos" ${partido.video_tipo === 'local' ? '' : 'style="display:none;"'}>🎬 Vídeos</button>
                     <button class="btn btn-sm btn-secondary" id="btn-ver-informe">📊 Informe</button>
                     <button class="btn btn-sm btn-secondary" id="btn-volver">← Volver</button>
                 </div>
@@ -225,6 +226,71 @@ function renderScoutingUI(container) {
             </div>
         </div>
 
+        <!-- modal de videos -->
+        <div class="attack-modal" id="videos-modal" style="display: none;">
+            <div class="notes-modal-content" style="max-width: 500px;">
+                <div class="notes-header">
+                    <h3>🎬 Generador de Vídeos</h3>
+                    <button id="btn-close-videos" class="btn btn-sm btn-secondary">✖</button>
+                </div>
+                <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label">Jugador</label>
+                            <select id="vid-jugador" class="form-input">
+                                <option value="">Ambos Jugadores</option>
+                                <option value="${partido.jugador1_id}">${partido.jugador1_nombre} ${partido.jugador1_apellidos}</option>
+                                <option value="${partido.jugador2_id}">${partido.jugador2_nombre} ${partido.jugador2_apellidos}</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label">Complejo</label>
+                            <select id="vid-complejo" class="form-input">
+                                <option value="">Cualquiera</option>
+                                <option value="K1">K1</option>
+                                <option value="K2">K2</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label">Tipo de Acción</label>
+                            <select id="vid-accion" class="form-input">
+                                <option value="">Todas</option>
+                                <option value="saque">Saque</option>
+                                <option value="recepcion">Recepción</option>
+                                <option value="colocacion">Colocación</option>
+                                <option value="ataque">Ataque</option>
+                                <option value="bloqueo">Bloqueo</option>
+                                <option value="defensa">Defensa</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label">Resultado</label>
+                            <select id="vid-resultado" class="form-input">
+                                <option value="">Cualquiera</option>
+                                <option value="punto">Punto</option>
+                                <option value="continuidad">Continuidad</option>
+                                <option value="error">Error</option>
+                                <option value="bloqueado">Bloqueado</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label">Margen Antes (s)</label>
+                            <input type="number" id="vid-margin-pre" class="form-input" value="3" min="0" max="10">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label">Margen Después (s)</label>
+                            <input type="number" id="vid-margin-post" class="form-input" value="1" min="0" max="10">
+                        </div>
+                    </div>
+                    <button id="btn-generar-videos-run" class="btn btn-primary mt-16" style="width: 100%;">✂️ Generar Vídeo (Combina la jugada)</button>
+                </div>
+            </div>
+        </div>
+
         <!-- modal de edicion de accion -->
         <div class="attack-modal" id="edit-action-modal" style="display: none;">
             <div class="notes-modal-content" style="max-width: 400px;">
@@ -320,6 +386,51 @@ function setupEditActionEvents() {
         scoutingState.editingActionId = null;
     });
 
+    const videosModal = document.getElementById('videos-modal');
+    document.getElementById('btn-generador-videos')?.addEventListener('click', () => {
+        videosModal.style.display = 'flex';
+        scoutingState.wizardModalAbierto = true;
+    });
+    document.getElementById('btn-close-videos')?.addEventListener('click', () => {
+        videosModal.style.display = 'none';
+        scoutingState.wizardModalAbierto = false;
+    });
+    
+    document.getElementById('btn-generar-videos-run')?.addEventListener('click', async () => {
+        const btnRun = document.getElementById('btn-generar-videos-run');
+        const filters = {};
+        const jug = document.getElementById('vid-jugador').value;
+        const comp = document.getElementById('vid-complejo').value;
+        const acc = document.getElementById('vid-accion').value;
+        const res = document.getElementById('vid-resultado').value;
+        const mPre = document.getElementById('vid-margin-pre').value;
+        const mPost = document.getElementById('vid-margin-post').value;
+        
+        if (jug) filters.jugador_id = parseInt(jug);
+        if (comp) filters.complejo = comp;
+        if (acc) filters.tipo_accion = acc;
+        if (res) filters.resultado = res;
+        filters.pre_margin = mPre ? parseFloat(mPre) : 3;
+        filters.post_margin = mPost ? parseFloat(mPost) : 1;
+
+        btnRun.disabled = true;
+        btnRun.textContent = '⏳ Generando...';
+        try {
+            const path = await window.api.generateVideoHighlights(params.partidoId, filters);
+            if (path) {
+                showToast('Vídeo generado con éxito', 'success');
+                videosModal.style.display = 'none';
+                scoutingState.wizardModalAbierto = false;
+            }
+        } catch (err) {
+            showToast(err.message || 'Error al generar vídeo', 'error');
+        } finally {
+            btnRun.disabled = false;
+            btnRun.textContent = '✂️ Generar Vídeo (Combina la jugada)';
+        }
+    });
+
+    const editModal = document.getElementById('edit-action-modal');
     const tipoSelect = document.getElementById('edit-tipo');
     tipoSelect.addEventListener('change', (e) => {
         populateEditSubtipo(e.target.value, '');

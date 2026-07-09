@@ -373,6 +373,14 @@ export function registerInforme() {
                                 </select>
                             </div>
                             <div style="flex: 1; min-width: 200px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Complejo</label>
+                                <select id="hl-complejo" class="form-input">
+                                    <option value="">Cualquiera</option>
+                                    <option value="K1">K1</option>
+                                    <option value="K2">K2</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
                                 <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Tipo de Acción</label>
                                 <select id="hl-accion" class="form-input">
                                     <option value="">Todas las Acciones</option>
@@ -393,6 +401,14 @@ export function registerInforme() {
                                     <option value="error">Error</option>
                                     <option value="bloqueado">Bloqueado</option>
                                 </select>
+                            </div>
+                            <div style="flex: 1; min-width: 100px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">M. Antes (s)</label>
+                                <input type="number" id="hl-margin-pre" class="form-input" value="3" min="0" max="10">
+                            </div>
+                            <div style="flex: 1; min-width: 100px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">M. Después (s)</label>
+                                <input type="number" id="hl-margin-post" class="form-input" value="1" min="0" max="10">
                             </div>
                             <div style="display: flex; align-items: flex-end; padding-top: 10px;">
                                 <button id="btn-generar-highlights" class="btn btn-primary" style="width: 100%;">✂️ Generar Vídeo</button>
@@ -443,12 +459,18 @@ export function registerInforme() {
                 btnHighlights.addEventListener('click', async () => {
                     const filters = {};
                     const jug = document.getElementById('hl-jugador').value;
+                    const comp = document.getElementById('hl-complejo').value;
                     const acc = document.getElementById('hl-accion').value;
                     const res = document.getElementById('hl-resultado').value;
+                    const mPre = document.getElementById('hl-margin-pre').value;
+                    const mPost = document.getElementById('hl-margin-post').value;
                     
                     if (jug) filters.jugador_id = parseInt(jug);
+                    if (comp) filters.complejo = comp;
                     if (acc) filters.tipo_accion = acc;
                     if (res) filters.resultado = res;
+                    filters.pre_margin = mPre ? parseFloat(mPre) : 3;
+                    filters.post_margin = mPost ? parseFloat(mPost) : 1;
 
                     btnHighlights.disabled = true;
                     btnHighlights.textContent = '⏳ Generando (puede tardar)...';

@@ -287,6 +287,10 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
     query += ' AND jugador_id = ?';
     params.push(filters.jugador_id);
   }
+  if (filters.complejo) {
+    query += ' AND complejo = ?';
+    params.push(filters.complejo);
+  }
   if (filters.tipo_accion) {
     query += ' AND tipo_accion = ?';
     params.push(filters.tipo_accion);
@@ -307,14 +311,35 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   const concatFilePath = path.join(os.tmpdir(), `bvscouter_concat_${Date.now()}.txt`);
   let concatData = '';
   
-  acciones.forEach(accion => {
-      // 4 secs before, 2 secs after
-      const inpoint = Math.max(0, accion.video_timestamp - 4);
-      const outpoint = accion.video_timestamp + 2;
+  const preMargin = filters.pre_margin !== undefined ? parseFloat(filters.pre_margin) : 3;
+  const postMargin = filters.post_margin !== undefined ? parseFloat(filters.post_margin) : 1;
+
+  // Create intervals and merge overlapping ones
+  let intervals = acciones.map(a => ({
+      start: Math.max(0, a.video_timestamp - preMargin),
+      end: a.video_timestamp + postMargin
+  }));
+  
+  if (intervals.length > 0) {
+      intervals.sort((a, b) => a.start - b.start);
+      const merged = [intervals[0]];
+      for (let i = 1; i < intervals.length; i++) {
+          const last = merged[merged.length - 1];
+          const curr = intervals[i];
+          if (curr.start <= last.end) {
+              last.end = Math.max(last.end, curr.end);
+          } else {
+              merged.push(curr);
+          }
+      }
+      intervals = merged;
+  }
+  
+  intervals.forEach(interval => {
       const safePath = videoPath.replace(/'/g, "'\\''");
       concatData += `file '${safePath}'\n`;
-      concatData += `inpoint ${inpoint.toFixed(2)}\n`;
-      concatData += `outpoint ${outpoint.toFixed(2)}\n`;
+      concatData += `inpoint ${interval.start.toFixed(2)}\n`;
+      concatData += `outpoint ${interval.end.toFixed(2)}\n`;
   });
   
   fs.writeFileSync(concatFilePath, concatData);

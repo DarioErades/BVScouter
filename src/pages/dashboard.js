@@ -125,6 +125,35 @@ function bindEvents(container, jugadores) {
             currentFolderId = null;
             renderDashboard(container, jugadores);
         });
+
+        // Eventos Drag and Drop para volver a la raiz (sacar de la carpeta)
+        btn.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            btn.style.background = '#0f172a';
+            btn.style.borderColor = '#38bdf8';
+            btn.style.color = '#38bdf8';
+        });
+
+        btn.addEventListener('dragleave', (e) => {
+            btn.style.background = '';
+            btn.style.borderColor = '';
+            btn.style.color = '';
+        });
+
+        btn.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            btn.style.background = '';
+            btn.style.borderColor = '';
+            btn.style.color = '';
+            
+            const partidoId = e.dataTransfer.getData('text/plain');
+            if (partidoId) {
+                // Mover a la raiz (carpeta_id = null)
+                await window.api.movePartidoToCarpeta(parseInt(partidoId), null);
+                allPartidos = await window.api.getPartidos(); // recargamos
+                renderDashboard(container, jugadores);
+            }
+        });
     });
 
     // Nueva Carpeta (Modal)

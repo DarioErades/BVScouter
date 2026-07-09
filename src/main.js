@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+import http from 'node:http';
+import fs from 'node:fs';
 import { initDatabase } from './database.js';
 import './ipc-handlers.js';
 
@@ -32,10 +34,46 @@ const createWindow = () => {
 
   mainWindow.maximize();
 
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[RENDERER CONSOLE] (${level}) ${message} at ${sourceId}:${line}`);
+  });
+
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+    // Levantamos un servidor local HTTP en produccion para servir los archivos de la app
+    // Esto es necesario para que la API del reproductor de YouTube no de errores de CORS/postMessage (Error 152-4)
+    const server = http.createServer((req, res) => {
+      let filePath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          res.writeHead(404);
+          res.end('Not Found');
+          return;
+        }
+        const ext = path.extname(filePath);
+        const contentType = {
+          '.html': 'text/html',
+          '.js': 'application/javascript',
+          '.css': 'text/css',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.ico': 'image/x-icon',
+          '.json': 'application/json',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+          '.ttf': 'font/ttf',
+        }[ext] || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(data);
+      });
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      mainWindow.loadURL(`http://localhost:${port}/`);
+    });
   }
 
 };
@@ -60,29 +98,6 @@ app.whenReady().then(() => {
       callback({ error: -2 });
     }
   });
-
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*'] },
-    (details, callback) => {
-      try {
-        const url = new URL(details.url);
-        const origin = `https://${url.hostname}`;
-        
-        details.requestHeaders['Referer'] = `${origin}/`;
-        details.requestHeaders['referer'] = `${origin}/`;
-        details.requestHeaders['Origin'] = origin;
-        details.requestHeaders['origin'] = origin;
-        details.requestHeaders['Sec-Fetch-Site'] = 'same-site';
-        details.requestHeaders['sec-fetch-site'] = 'same-site';
-      } catch (e) {
-        details.requestHeaders['Referer'] = 'https://www.youtube.com/';
-        details.requestHeaders['referer'] = 'https://www.youtube.com/';
-        details.requestHeaders['Origin'] = 'https://www.youtube.com';
-        details.requestHeaders['origin'] = 'https://www.youtube.com';
-      }
-      callback({ cancel: false, requestHeaders: details.requestHeaders });
-    }
-  );
 
   initDatabase();
   createWindow();

@@ -16,10 +16,12 @@ contextBridge.exposeInMainWorld('api', {
   // acciones
   getAcciones: (partidoId) => ipcRenderer.invoke('acciones:getByPartido', partidoId),
   createAccion: (data) => ipcRenderer.invoke('acciones:create', data),
+  updateAccion: (id, data) => ipcRenderer.invoke('acciones:update', id, data),
   deleteAccion: (id) => ipcRenderer.invoke('acciones:delete', id),
   undoLastAccion: (partidoId) => ipcRenderer.invoke('acciones:deleteLastByPartido', partidoId),
   // utilidades
   openVideoFile: () => ipcRenderer.invoke('dialog:openFile'),
   getStats: (partidoId) => ipcRenderer.invoke('stats:getByPartido', partidoId),
-  generatePDF: (html) => ipcRenderer.invoke('pdf:generate', html),
+  generatePDF: (html, height) => ipcRenderer.invoke('pdf:generate', html, height),
+  generateVideoHighlights: (partidoId, filters) => ipcRenderer.invoke('video:generateHighlights', partidoId, filters),
 });

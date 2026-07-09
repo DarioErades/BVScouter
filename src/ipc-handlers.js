@@ -1,5 +1,12 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { getDB } from './database.js';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+
+const execAsync = promisify(exec);
 
 // ---- JUGADORES ----
 
@@ -130,6 +137,15 @@ ipcMain.handle('acciones:delete', (_event, id) => {
   return db.prepare('DELETE FROM acciones WHERE id = ?').run(id);
 });
 
+ipcMain.handle('acciones:update', (_event, id, data) => {
+  const db = getDB();
+  const campos = Object.keys(data);
+  if (campos.length === 0) return true;
+  const sets = campos.map(c => `${c} = @${c}`).join(', ');
+  const stmt = db.prepare(`UPDATE acciones SET ${sets} WHERE id = @id`);
+  return stmt.run({ ...data, id });
+});
+
 ipcMain.handle('acciones:deleteLastByPartido', (_event, partidoId) => {
   const db = getDB();
   // pillamos la última acción del partido y la borramos
@@ -240,14 +256,93 @@ ipcMain.handle('stats:getByPartido', (_event, partidoId) => {
   };
 });
 
+// ---- VIDEO HIGHLIGHTS ----
+ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) => {
+  const db = getDB();
+  
+  const partido = db.prepare('SELECT video_url, video_tipo FROM partidos WHERE id = ?').get(partidoId);
+  if (!partido || partido.video_tipo !== 'local' || !partido.video_url) {
+    throw new Error('El partido no tiene un vídeo local configurado.');
+  }
+  
+  const videoPath = partido.video_url;
+  if (!fs.existsSync(videoPath)) {
+    throw new Error('El archivo de vídeo original no existe.');
+  }
+
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Guardar Highlights',
+    defaultPath: `highlights_partido_${partidoId}.mp4`,
+    filters: [
+      { name: 'Vídeo MP4', extensions: ['mp4'] }
+    ]
+  });
+
+  if (canceled || !filePath) return null;
+
+  let query = 'SELECT video_timestamp FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
+  const params = [partidoId];
+
+  if (filters.jugador_id) {
+    query += ' AND jugador_id = ?';
+    params.push(filters.jugador_id);
+  }
+  if (filters.tipo_accion) {
+    query += ' AND tipo_accion = ?';
+    params.push(filters.tipo_accion);
+  }
+  if (filters.resultado) {
+    query += ' AND resultado = ?';
+    params.push(filters.resultado);
+  }
+  
+  query += ' ORDER BY video_timestamp ASC';
+
+  const acciones = db.prepare(query).all(...params);
+  
+  if (acciones.length === 0) {
+    throw new Error('No se encontraron acciones con esos filtros que tengan un tiempo de vídeo registrado.');
+  }
+
+  const concatFilePath = path.join(os.tmpdir(), `bvscouter_concat_${Date.now()}.txt`);
+  let concatData = '';
+  
+  acciones.forEach(accion => {
+      // 4 secs before, 2 secs after
+      const inpoint = Math.max(0, accion.video_timestamp - 4);
+      const outpoint = accion.video_timestamp + 2;
+      const safePath = videoPath.replace(/'/g, "'\\''");
+      concatData += `file '${safePath}'\n`;
+      concatData += `inpoint ${inpoint.toFixed(2)}\n`;
+      concatData += `outpoint ${outpoint.toFixed(2)}\n`;
+  });
+  
+  fs.writeFileSync(concatFilePath, concatData);
+  
+  try {
+      const escapedConcat = concatFilePath.replace(/"/g, '\\"');
+      const escapedOutput = filePath.replace(/"/g, '\\"');
+      const cmd = `ffmpeg -y -f concat -safe 0 -i "${escapedConcat}" -c copy "${escapedOutput}"`;
+      await execAsync(cmd);
+      return filePath;
+  } catch (err) {
+      console.error('Error con FFmpeg:', err);
+      throw new Error('Fallo al generar el vídeo. FFmpeg no pudo procesarlo.');
+  } finally {
+      if (fs.existsSync(concatFilePath)) {
+          fs.unlinkSync(concatFilePath);
+      }
+  }
+});
+
 // ---- PDF ----
 
-ipcMain.handle('pdf:generate', async (_event, html) => {
+ipcMain.handle('pdf:generate', async (_event, html, contentHeight) => {
   // ventana oculta para generar el PDF
   const win = new BrowserWindow({
     show: false,
     width: 1024,
-    height: 768,
+    height: 1000,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -258,8 +353,9 @@ ipcMain.handle('pdf:generate', async (_event, html) => {
 
   const pdfData = await win.webContents.printToPDF({
     printBackground: true,
-    landscape: true,
-    margins: { marginType: 'default' }
+    pageSize: 'A4',
+    landscape: false,
+    margins: { marginType: 'none' }
   });
 
   win.close();
@@ -276,3 +372,4 @@ ipcMain.handle('pdf:generate', async (_event, html) => {
   writeFileSync(filePath, pdfData);
   return filePath;
 });
+

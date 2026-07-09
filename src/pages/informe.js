@@ -361,6 +361,45 @@ export function registerInforme() {
                         </div>
                     </div>
 
+                    <div class="report-section" id="section-highlights" ${partido.video_tipo === 'local' ? '' : 'style="display:none;"'}>
+                        <h2 class="report-section-title">🎬 Generador de Highlights</h2>
+                        <div class="report-grid" style="background: #1a2332; padding: 20px; border-radius: 12px; border: 1px solid #1e293b;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Jugador</label>
+                                <select id="hl-jugador" class="form-input">
+                                    <option value="">Ambos Jugadores</option>
+                                    <option value="${partido.jugador1_id}">${partido.jugador1_nombre}</option>
+                                    <option value="${partido.jugador2_id}">${partido.jugador2_nombre}</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Tipo de Acción</label>
+                                <select id="hl-accion" class="form-input">
+                                    <option value="">Todas las Acciones</option>
+                                    <option value="saque">Saque</option>
+                                    <option value="recepcion">Recepción</option>
+                                    <option value="colocacion">Colocación</option>
+                                    <option value="ataque">Ataque</option>
+                                    <option value="bloqueo">Bloqueo</option>
+                                    <option value="defensa">Defensa</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Resultado</label>
+                                <select id="hl-resultado" class="form-input">
+                                    <option value="">Cualquier Resultado</option>
+                                    <option value="punto">Punto</option>
+                                    <option value="continuidad">Continuidad</option>
+                                    <option value="error">Error</option>
+                                    <option value="bloqueado">Bloqueado</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; align-items: flex-end; padding-top: 10px;">
+                                <button id="btn-generar-highlights" class="btn btn-primary" style="width: 100%;">✂️ Generar Vídeo</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- acciones -->
                     <div class="report-actions">
                         <button class="btn btn-primary btn-lg" id="btn-exportar-pdf">📄 Exportar a PDF</button>
@@ -397,6 +436,35 @@ export function registerInforme() {
             document.getElementById('btn-volver-dash').addEventListener('click', () => {
                 router.navigate('dashboard');
             });
+
+            // evento generar highlights
+            const btnHighlights = document.getElementById('btn-generar-highlights');
+            if (btnHighlights) {
+                btnHighlights.addEventListener('click', async () => {
+                    const filters = {};
+                    const jug = document.getElementById('hl-jugador').value;
+                    const acc = document.getElementById('hl-accion').value;
+                    const res = document.getElementById('hl-resultado').value;
+                    
+                    if (jug) filters.jugador_id = parseInt(jug);
+                    if (acc) filters.tipo_accion = acc;
+                    if (res) filters.resultado = res;
+
+                    btnHighlights.disabled = true;
+                    btnHighlights.textContent = '⏳ Generando (puede tardar)...';
+                    try {
+                        const path = await window.api.generateVideoHighlights(params.partidoId, filters);
+                        if (path) {
+                            showToast('Vídeo generado con éxito', 'success');
+                        }
+                    } catch (err) {
+                        showToast(err.message || 'Error al generar vídeo', 'error');
+                    } finally {
+                        btnHighlights.disabled = false;
+                        btnHighlights.textContent = '✂️ Generar Vídeo';
+                    }
+                });
+            }
 
             // eventos para pestañas de golpes
             document.querySelectorAll('.tab-golpes-btn').forEach(btn => {
@@ -885,7 +953,7 @@ async function exportarPDF(container) {
                     text-align: center;
                 }
                 
-                #section-patrones { display: none !important; }
+                #section-patrones, #section-highlights { display: none !important; }
                 
                 .report-conclusions::after {
                     content: "${(document.getElementById('conclusiones-text')?.value || '').replace(/\n/g, '\\n')}";

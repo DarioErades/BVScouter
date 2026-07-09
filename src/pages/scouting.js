@@ -235,46 +235,56 @@ function renderScoutingUI(container) {
                     <button id="btn-close-videos" class="btn btn-sm btn-secondary">✖</button>
                 </div>
                 <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-                    <div style="display: flex; gap: 12px;">
-                        <div style="flex: 1;">
-                            <label class="form-label">Jugador</label>
-                            <select id="vid-jugador" class="form-input">
-                                <option value="">Ambos Jugadores</option>
-                                <option value="${partido.jugador1_id}">${partido.jugador1_nombre} ${partido.jugador1_apellidos}</option>
-                                <option value="${partido.jugador2_id}">${partido.jugador2_nombre} ${partido.jugador2_apellidos}</option>
-                            </select>
-                        </div>
-                        <div style="flex: 1;">
-                            <label class="form-label">Complejo</label>
-                            <select id="vid-complejo" class="form-input">
-                                <option value="">Cualquiera</option>
-                                <option value="K1">K1</option>
-                                <option value="K2">K2</option>
-                            </select>
-                        </div>
+                    <div style="margin-bottom: 4px;">
+                        <label class="form-label">Modo de Generación</label>
+                        <select id="vid-generar-modo" class="form-input" style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px; height: 38px;">
+                            <option value="filtrar">Filtrar jugadas específicas</option>
+                            <option value="puntos">Todos los puntos completos (de principio a fin)</option>
+                        </select>
                     </div>
-                    <div style="display: flex; gap: 12px;">
-                        <div style="flex: 1;">
-                            <label class="form-label">Tipo de Acción</label>
-                            <select id="vid-accion" class="form-input">
-                                <option value="">Todas</option>
-                                <option value="saque">Saque</option>
-                                <option value="recepcion">Recepción</option>
-                                <option value="colocacion">Colocación</option>
-                                <option value="ataque">Ataque</option>
-                                <option value="bloqueo">Bloqueo</option>
-                                <option value="defensa">Defensa</option>
-                            </select>
+                    
+                    <div id="vid-filtros-container" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div style="display: flex; gap: 12px;">
+                            <div style="flex: 1;">
+                                <label class="form-label">Jugador</label>
+                                <select id="vid-jugador" class="form-input">
+                                    <option value="">Ambos Jugadores</option>
+                                    <option value="${partido.jugador1_id}">${partido.jugador1_nombre} ${partido.jugador1_apellidos}</option>
+                                    <option value="${partido.jugador2_id}">${partido.jugador2_nombre} ${partido.jugador2_apellidos}</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1;">
+                                <label class="form-label">Complejo</label>
+                                <select id="vid-complejo" class="form-input">
+                                    <option value="">Cualquiera</option>
+                                    <option value="K1">K1</option>
+                                    <option value="K2">K2</option>
+                                </select>
+                            </div>
                         </div>
-                        <div style="flex: 1;">
-                            <label class="form-label">Resultado</label>
-                            <select id="vid-resultado" class="form-input">
-                                <option value="">Cualquiera</option>
-                                <option value="punto">Punto</option>
-                                <option value="continuidad">Continuidad</option>
-                                <option value="error">Error</option>
-                                <option value="bloqueado">Bloqueado</option>
-                            </select>
+                        <div style="display: flex; gap: 12px;">
+                            <div style="flex: 1;">
+                                <label class="form-label">Tipo de Acción</label>
+                                <select id="vid-accion" class="form-input">
+                                    <option value="">Todas</option>
+                                    <option value="saque">Saque</option>
+                                    <option value="recepcion">Recepción</option>
+                                    <option value="colocacion">Colocación</option>
+                                    <option value="ataque">Ataque</option>
+                                    <option value="bloqueo">Bloqueo</option>
+                                    <option value="defensa">Defensa</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1;">
+                                <label class="form-label">Resultado</label>
+                                <select id="vid-resultado" class="form-input">
+                                    <option value="">Cualquiera</option>
+                                    <option value="punto">Punto</option>
+                                    <option value="continuidad">Continuidad</option>
+                                    <option value="error">Error</option>
+                                    <option value="bloqueado">Bloqueado</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     <div style="display: flex; gap: 12px;">
@@ -449,7 +459,18 @@ function setupEditActionEvents() {
     });
 
     const videosModal = document.getElementById('videos-modal');
+    const filtersContainer = document.getElementById('vid-filtros-container');
+    const modeSelector = document.getElementById('vid-generar-modo');
+
+    modeSelector?.addEventListener('change', (e) => {
+        if (filtersContainer) {
+            filtersContainer.style.display = e.target.value === 'puntos' ? 'none' : 'flex';
+        }
+    });
+
     document.getElementById('btn-generador-videos')?.addEventListener('click', () => {
+        if (modeSelector) modeSelector.value = 'filtrar';
+        if (filtersContainer) filtersContainer.style.display = 'flex';
         videosModal.style.display = 'flex';
         scoutingState.wizardModalAbierto = true;
     });
@@ -461,6 +482,9 @@ function setupEditActionEvents() {
     document.getElementById('btn-generar-videos-run')?.addEventListener('click', async () => {
         const btnRun = document.getElementById('btn-generar-videos-run');
         const filters = {};
+        const modo = modeSelector ? modeSelector.value : 'filtrar';
+        filters.modo = modo;
+
         const jug = document.getElementById('vid-jugador').value;
         const comp = document.getElementById('vid-complejo').value;
         const acc = document.getElementById('vid-accion').value;
@@ -468,10 +492,13 @@ function setupEditActionEvents() {
         const mPre = document.getElementById('vid-margin-pre').value;
         const mPost = document.getElementById('vid-margin-post').value;
         
-        if (jug) filters.jugador_id = parseInt(jug);
-        if (comp) filters.complejo = comp;
-        if (acc) filters.tipo_accion = acc;
-        if (res) filters.resultado = res;
+        if (modo !== 'puntos') {
+            if (jug) filters.jugador_id = parseInt(jug);
+            if (comp) filters.complejo = comp;
+            if (acc) filters.tipo_accion = acc;
+            if (res) filters.resultado = res;
+        }
+        
         filters.pre_margin = mPre ? parseFloat(mPre) : 3;
         filters.post_margin = mPost ? parseFloat(mPost) : 1;
 

@@ -352,24 +352,26 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
 
   if (canceled || !filePath) return null;
 
-  let query = 'SELECT video_timestamp, marcador_local, marcador_rival, set_numero, complejo FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
+  let query = 'SELECT video_timestamp, marcador_local, marcador_rival, set_numero, complejo, tipo_accion FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
   const params = [partidoId];
 
-  if (filters.jugador_id) {
-    query += ' AND jugador_id = ?';
-    params.push(filters.jugador_id);
-  }
-  if (filters.complejo) {
-    query += ' AND complejo = ?';
-    params.push(filters.complejo);
-  }
-  if (filters.tipo_accion) {
-    query += ' AND tipo_accion = ?';
-    params.push(filters.tipo_accion);
-  }
-  if (filters.resultado) {
-    query += ' AND resultado = ?';
-    params.push(filters.resultado);
+  if (filters.modo !== 'puntos') {
+    if (filters.jugador_id) {
+      query += ' AND jugador_id = ?';
+      params.push(filters.jugador_id);
+    }
+    if (filters.complejo) {
+      query += ' AND complejo = ?';
+      params.push(filters.complejo);
+    }
+    if (filters.tipo_accion) {
+      query += ' AND tipo_accion = ?';
+      params.push(filters.tipo_accion);
+    }
+    if (filters.resultado) {
+      query += ' AND resultado = ?';
+      params.push(filters.resultado);
+    }
   }
   
   query += ' ORDER BY video_timestamp ASC';
@@ -383,27 +385,61 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   const preMargin = filters.pre_margin !== undefined ? parseFloat(filters.pre_margin) : 3;
   const postMargin = filters.post_margin !== undefined ? parseFloat(filters.post_margin) : 1;
 
-  // agrupar acciones que pertenezcan a la misma fase del mismo punto para evitar microcortes
-  const grupos = {};
-  acciones.forEach(a => {
+  let intervals = [];
+
+  if (filters.modo === 'puntos') {
+    // Agrupar por set y marcador para formar puntos/rallies completos
+    const grupos = {};
+    acciones.forEach(a => {
+      const key = `${a.set_numero}_${a.marcador_local}_${a.marcador_rival}`;
+      if (!grupos[key]) {
+        grupos[key] = {
+          acciones: []
+        };
+      }
+      grupos[key].acciones.push(a);
+    });
+
+    intervals = Object.values(grupos).map(g => {
+      // Ordenamos las acciones del punto cronológicamente
+      g.acciones.sort((x, y) => x.video_timestamp - y.video_timestamp);
+      
+      const primera = g.acciones[0];
+      const ultima = g.acciones[g.acciones.length - 1];
+      
+      // Si la primera acción del punto es recepción, añadimos 1 segundo extra
+      const extraMargin = (primera && primera.tipo_accion === 'recepcion') ? 1.0 : 0.0;
+      const actualPreMargin = preMargin + extraMargin;
+      
+      return {
+        start: Math.max(0, (primera.video_timestamp - actualPreMargin)),
+        end: (ultima.video_timestamp + postMargin),
+        score: `${primera.marcador_local || 0} - ${primera.marcador_rival || 0}`
+      };
+    });
+  } else {
+    // Modo filtrar jugadas (comportamiento original agrupando por complejo para evitar microcortes)
+    const grupos = {};
+    acciones.forEach(a => {
       const key = `${a.set_numero}_${a.marcador_local}_${a.marcador_rival}_${a.complejo}`;
       if (!grupos[key]) {
-          grupos[key] = {
-              minTime: a.video_timestamp,
-              maxTime: a.video_timestamp,
-              score: `${a.marcador_local || 0} - ${a.marcador_rival || 0}`
-          };
+        grupos[key] = {
+          minTime: a.video_timestamp,
+          maxTime: a.video_timestamp,
+          score: `${a.marcador_local || 0} - ${a.marcador_rival || 0}`
+        };
       } else {
-          grupos[key].minTime = Math.min(grupos[key].minTime, a.video_timestamp);
-          grupos[key].maxTime = Math.max(grupos[key].maxTime, a.video_timestamp);
+        grupos[key].minTime = Math.min(grupos[key].minTime, a.video_timestamp);
+        grupos[key].maxTime = Math.max(grupos[key].maxTime, a.video_timestamp);
       }
-  });
+    });
 
-  let intervals = Object.values(grupos).map(g => ({
+    intervals = Object.values(grupos).map(g => ({
       start: Math.max(0, g.minTime - preMargin),
       end: g.maxTime + postMargin,
       score: g.score
-  }));
+    }));
+  }
   
   if (intervals.length > 0) {
       intervals.sort((a, b) => a.start - b.start);

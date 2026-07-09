@@ -72,33 +72,32 @@ function renderDashboard(container, jugadores) {
                         <p class="empty-state-text font-medium">Esta carpeta está vacía</p>
                     </div>
                 ` : `
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Fecha</th>
-                                    <th>Equipos</th>
-                                    <th>Resultado</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${partidosToShow.map(p => `
-                                    <tr class="partido-row" draggable="true" data-id="${p.id}" style="cursor: grab;">
-                                        <td style="pointer-events: none;">📄 ${formatDate(p.fecha)}</td>
-                                        <td style="pointer-events: none;">${p.jugador1_nombre} ${p.jugador1_apellidos} / ${p.jugador2_nombre} ${p.jugador2_apellidos}</td>
-                                        <td style="pointer-events: none;" class="font-mono">${p.resultado || '-'}</td>
-                                        <td>
-                                            <div class="flex gap-8">
-                                                <button class="btn btn-sm btn-secondary btn-scouting" data-id="${p.id}">📋 Scouting</button>
-                                                <button class="btn btn-sm btn-secondary btn-informe" data-id="${p.id}">📊 Informe</button>
-                                                <button class="btn btn-sm btn-secondary btn-eliminar-partido" data-id="${p.id}" title="Eliminar Partido" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); padding: 0 8px;">🗑️</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
+                    <div class="partidos-list" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        ${partidosToShow.map(p => `
+                            <div class="partido-item card-hover" draggable="true" data-id="${p.id}" style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; cursor: grab; display: flex; align-items: center; justify-content: space-between; user-select: none; transition: transform 0.2s, box-shadow 0.2s;">
+                                <div class="flex items-center gap-12" style="pointer-events: none; display: flex; align-items: center; gap: 16px;">
+                                    <span style="font-size: 2rem;">🏐</span>
+                                    <div>
+                                        <div class="font-semibold text-white" style="font-size: 1rem; margin-bottom: 4px;">
+                                            ${p.jugador1_nombre} ${p.jugador1_apellidos} / ${p.jugador2_nombre} ${p.jugador2_apellidos}
+                                        </div>
+                                        <div style="font-size: 0.85rem; color: #94a3b8;">
+                                            📅 ${formatDate(p.fecha)} ${p.torneo ? `| 🏆 ${p.torneo}` : ''} ${p.fase ? `| 🏷️ ${p.fase}` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-12" style="display: flex; align-items: center; gap: 16px;">
+                                    <span class="badge badge-info" style="font-family: monospace; font-size: 0.9rem; padding: 6px 12px; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px;">
+                                        Resultado: ${p.resultado || '-'}
+                                    </span>
+                                    <div class="flex gap-8" style="display: flex; gap: 8px;">
+                                        <button class="btn btn-sm btn-secondary btn-scouting" data-id="${p.id}">📋 Scouting</button>
+                                        <button class="btn btn-sm btn-secondary btn-informe" data-id="${p.id}">📊 Informe</button>
+                                        <button class="btn btn-sm btn-secondary btn-eliminar-partido" data-id="${p.id}" title="Eliminar Partido" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); padding: 0 8px;">🗑️</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
                     </div>
                 `}
             </div>
@@ -218,13 +217,15 @@ function bindEvents(container, jugadores) {
     });
 
     // Eventos Drag and Drop para partidos
-    document.querySelectorAll('.partido-row').forEach(row => {
+    document.querySelectorAll('.partido-item').forEach(row => {
         row.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', row.dataset.id);
-            row.style.opacity = '0.5';
+            row.style.opacity = '0.4';
+            row.style.transform = 'scale(0.98)';
         });
         row.addEventListener('dragend', (e) => {
             row.style.opacity = '1';
+            row.style.transform = 'none';
         });
     });
 

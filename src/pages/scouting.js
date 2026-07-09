@@ -109,6 +109,7 @@ function renderScoutingUI(container) {
                     </div>
                     <button class="btn btn-sm btn-primary" id="btn-finalizar-set">🏁 Finalizar Set</button>
                     <button class="btn btn-sm btn-secondary" id="btn-notas-partido">📝 Notas</button>
+                    <button class="btn btn-sm btn-secondary" id="btn-ajustes-partido">⚙️ Ajustes</button>
                     <button class="btn btn-sm btn-secondary" id="btn-guardar-partido">💾 Guardar</button>
                     <button class="btn btn-sm btn-secondary" id="btn-generador-videos" ${(partido.video_tipo === 'local' || partido.video_tipo === 'youtube') ? '' : 'style="display:none;"'}>🎬 Vídeos</button>
                     <button class="btn btn-sm btn-secondary" id="btn-ver-informe">📊 Informe</button>
@@ -337,12 +338,73 @@ function renderScoutingUI(container) {
                     <button id="btn-save-edit" class="btn btn-primary">💾 Guardar Cambios</button>
                 </div>
             </div>
+            <!-- Modal para ajustes del partido -->
+            <div id="modal-ajustes-partido" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+                <div class="modal-content card" style="background: #1e293b; border: 1px solid #334155; padding: 24px; border-radius: 12px; width: 500px; max-width: 90%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
+                    <h3 style="margin-top: 0; margin-bottom: 16px; color: white; font-size: 1.2rem;">⚙️ Ajustes del Partido</h3>
+                    
+                    <div style="margin-bottom: 16px;">
+                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Torneo</label>
+                        <input type="text" id="ajustes-torneo" class="form-input" style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px;">
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Fase</label>
+                        <select id="ajustes-fase" class="form-select" style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px; height: 38px;">
+                            <option value="">Seleccionar fase...</option>
+                            <option value="Fase de Grupos">Fase de Grupos</option>
+                            <option value="Dieciseisavos">Dieciseisavos</option>
+                            <option value="Octavos de Final">Octavos de Final</option>
+                            <option value="Cuartos de Final">Cuartos de Final</option>
+                            <option value="Semifinal">Semifinal</option>
+                            <option value="Partido por el Bronce">Partido por el Bronce</option>
+                            <option value="Final">Final</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Origen del Vídeo</label>
+                        <div style="display: flex; gap: 16px; margin-top: 6px;">
+                            <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                <input type="radio" name="ajustes-video-tipo" value="youtube"> YouTube
+                            </label>
+                            <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                <input type="radio" name="ajustes-video-tipo" value="local"> Archivo Local
+                            </label>
+                            <label style="color: white; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                <input type="radio" name="ajustes-video-tipo" value="ninguno"> Sin vídeo
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Input YouTube -->
+                    <div id="ajustes-group-youtube" style="margin-bottom: 20px; display: none;">
+                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Enlace de YouTube</label>
+                        <input type="text" id="ajustes-youtube-url" class="form-input" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px;">
+                    </div>
+
+                    <!-- Input Local -->
+                    <div id="ajustes-group-local" style="margin-bottom: 20px; display: none;">
+                        <label class="form-label" style="display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.95rem;">Archivo de Vídeo Local</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="ajustes-local-path" class="form-input" readonly style="flex: 1; background: #0f172a; border: 1px solid #334155; color: #94a3b8; padding: 8px; border-radius: 6px; cursor: not-allowed; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            <button class="btn btn-secondary" id="btn-ajustes-elegir-local">Seleccionar...</button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+                        <button class="btn btn-secondary" id="btn-ajustes-cancelar">Cancelar</button>
+                        <button class="btn btn-primary" id="btn-ajustes-guardar">Guardar Cambios</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
 
     setupActionPanelEvents(container);
     setupNotesEvents();
     setupEditActionEvents();
+    setupAjustesEvents();
 }
 
 function setupNotesEvents() {
@@ -1599,4 +1661,93 @@ function populateEditSubtipo(tipo, currentValue) {
             }
         }
     }
+}
+
+function setupAjustesEvents() {
+    const modal = document.getElementById('modal-ajustes-partido');
+    const btnOpen = document.getElementById('btn-ajustes-partido');
+    const btnCancel = document.getElementById('btn-ajustes-cancelar');
+    const btnSave = document.getElementById('btn-ajustes-guardar');
+    const btnElegirLocal = document.getElementById('btn-ajustes-elegir-local');
+    const inputTorneo = document.getElementById('ajustes-torneo');
+    const selectFase = document.getElementById('ajustes-fase');
+    const inputYoutubeUrl = document.getElementById('ajustes-youtube-url');
+    const inputLocalPath = document.getElementById('ajustes-local-path');
+    const groupYoutube = document.getElementById('ajustes-group-youtube');
+    const groupLocal = document.getElementById('ajustes-group-local');
+
+    // Cambiar tipo de video
+    const radios = document.querySelectorAll('input[name="ajustes-video-tipo"]');
+    radios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const val = e.target.value;
+            groupYoutube.style.display = val === 'youtube' ? 'block' : 'none';
+            groupLocal.style.display = val === 'local' ? 'block' : 'none';
+        });
+    });
+
+    btnOpen?.addEventListener('click', () => {
+        const p = scoutingState.partido;
+        inputTorneo.value = p.torneo || '';
+        selectFase.value = p.fase || '';
+        
+        const tipo = p.video_tipo || 'ninguno';
+        const targetRadio = document.querySelector(`input[name="ajustes-video-tipo"][value="${tipo}"]`);
+        if (targetRadio) targetRadio.checked = true;
+        
+        groupYoutube.style.display = tipo === 'youtube' ? 'block' : 'none';
+        groupLocal.style.display = tipo === 'local' ? 'block' : 'none';
+        
+        if (tipo === 'youtube') {
+            inputYoutubeUrl.value = p.video_url || '';
+        } else if (tipo === 'local') {
+            inputLocalPath.value = p.video_url || '';
+        } else {
+            inputYoutubeUrl.value = '';
+            inputLocalPath.value = '';
+        }
+        
+        modal.style.display = 'flex';
+        scoutingState.wizardModalAbierto = true;
+    });
+
+    btnCancel?.addEventListener('click', () => {
+        modal.style.display = 'none';
+        scoutingState.wizardModalAbierto = false;
+    });
+
+    btnElegirLocal?.addEventListener('click', async () => {
+        const path = await window.api.openVideoFile();
+        if (path) {
+            inputLocalPath.value = path;
+        }
+    });
+
+    btnSave?.addEventListener('click', async () => {
+        const torneo = inputTorneo.value.trim();
+        const fase = selectFase.value;
+        const selectedRadio = document.querySelector('input[name="ajustes-video-tipo"]:checked');
+        const tipoVal = selectedRadio ? selectedRadio.value : 'ninguno';
+        
+        let video_tipo = null;
+        let video_url = null;
+        
+        if (tipoVal === 'youtube') {
+            video_tipo = 'youtube';
+            video_url = inputYoutubeUrl.value.trim();
+        } else if (tipoVal === 'local') {
+            video_tipo = 'local';
+            video_url = inputLocalPath.value.trim();
+        }
+
+        const data = { torneo, fase, video_tipo, video_url };
+        await window.api.updatePartido(scoutingState.partidoId, data);
+        
+        showToast('Ajustes del partido actualizados', 'success');
+        modal.style.display = 'none';
+        scoutingState.wizardModalAbierto = false;
+
+        // Recargamos el scouting para aplicar los ajustes y recargar el reproductor
+        router.navigate('scouting', { partidoId: scoutingState.partidoId });
+    });
 }

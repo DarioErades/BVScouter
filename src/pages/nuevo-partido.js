@@ -34,6 +34,7 @@ export function registerNuevoPartido() {
                                         ${FASES_TORNEO.map(f => `<option value="${f}">${f}</option>`).join('')}
                                     </select>
                                 </div>
+                            </div>
                             <div class="form-row">
                                 <div class="form-group">
                                     <label class="form-label">Pareja a Analizar *</label>

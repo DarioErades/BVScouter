@@ -11,6 +11,9 @@ if (started) {
 
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
 
+// Forzamos un User-Agent de Chrome estándar de Linux para que YouTube no detecte "Electron" y bloquee el reproductor
+app.userAgentFallback = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
     width: 1400,
@@ -63,9 +66,19 @@ app.whenReady().then(() => {
     (details, callback) => {
       try {
         const url = new URL(details.url);
-        details.requestHeaders['Referer'] = `https://${url.hostname}`;
+        const origin = `https://${url.hostname}`;
+        
+        details.requestHeaders['Referer'] = `${origin}/`;
+        details.requestHeaders['referer'] = `${origin}/`;
+        details.requestHeaders['Origin'] = origin;
+        details.requestHeaders['origin'] = origin;
+        details.requestHeaders['Sec-Fetch-Site'] = 'same-site';
+        details.requestHeaders['sec-fetch-site'] = 'same-site';
       } catch (e) {
-        details.requestHeaders['Referer'] = 'https://www.youtube.com';
+        details.requestHeaders['Referer'] = 'https://www.youtube.com/';
+        details.requestHeaders['referer'] = 'https://www.youtube.com/';
+        details.requestHeaders['Origin'] = 'https://www.youtube.com';
+        details.requestHeaders['origin'] = 'https://www.youtube.com';
       }
       callback({ cancel: false, requestHeaders: details.requestHeaders });
     }

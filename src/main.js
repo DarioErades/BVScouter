@@ -39,7 +39,7 @@ const createWindow = () => {
 import { pathToFileURL } from 'node:url';
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'local-video', privileges: { bypassCSP: true, supportFetchAPI: true, stream: true } }
+  { scheme: 'local-video', privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, stream: true } }
 ]);
 
 app.whenReady().then(() => {

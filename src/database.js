@@ -56,7 +56,19 @@ export function initDatabase() {
       FOREIGN KEY (partido_id) REFERENCES partidos(id),
       FOREIGN KEY (jugador_id) REFERENCES jugadores(id)
     );
+
+    CREATE TABLE IF NOT EXISTS carpetas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
+
+  try {
+    db.exec(`ALTER TABLE partidos ADD COLUMN carpeta_id INTEGER REFERENCES carpetas(id)`);
+  } catch (err) {
+    // La columna ya existe
+  }
 
   return db;
 }

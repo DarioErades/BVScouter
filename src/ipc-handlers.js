@@ -48,6 +48,27 @@ ipcMain.handle('jugadores:delete', (_event, id) => {
   return db.prepare('DELETE FROM jugadores WHERE id = ?').run(id);
 });
 
+// ---- CARPETAS ----
+
+ipcMain.handle('carpetas:getAll', () => {
+  const db = getDB();
+  return db.prepare('SELECT * FROM carpetas ORDER BY nombre').all();
+});
+
+ipcMain.handle('carpetas:create', (_event, nombre) => {
+  const db = getDB();
+  const stmt = db.prepare('INSERT INTO carpetas (nombre) VALUES (?)');
+  const result = stmt.run(nombre);
+  return { id: result.lastInsertRowid, nombre };
+});
+
+ipcMain.handle('carpetas:delete', (_event, id) => {
+  const db = getDB();
+  // Los partidos vuelven a la raíz
+  db.prepare('UPDATE partidos SET carpeta_id = NULL WHERE carpeta_id = ?').run(id);
+  return db.prepare('DELETE FROM carpetas WHERE id = ?').run(id);
+});
+
 // ---- PARTIDOS ----
 
 ipcMain.handle('partidos:getAll', () => {
@@ -107,6 +128,11 @@ ipcMain.handle('partidos:delete', (_event, id) => {
   // primero las acciones del partido
   db.prepare('DELETE FROM acciones WHERE partido_id = ?').run(id);
   return db.prepare('DELETE FROM partidos WHERE id = ?').run(id);
+});
+
+ipcMain.handle('partidos:moveToCarpeta', (_event, partidoId, carpetaId) => {
+  const db = getDB();
+  return db.prepare('UPDATE partidos SET carpeta_id = ? WHERE id = ?').run(carpetaId, partidoId);
 });
 
 // ---- ACCIONES ----

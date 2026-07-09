@@ -102,6 +102,17 @@ function renderDashboard(container, jugadores) {
                     </div>
                 `}
             </div>
+            <!-- Modal para nueva carpeta -->
+            <div id="modal-nueva-carpeta" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+                <div class="modal-content card" style="background: #1e293b; border: 1px solid #334155; padding: 24px; border-radius: 12px; width: 400px; max-width: 90%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
+                    <h3 style="margin-top: 0; margin-bottom: 16px; color: white; font-size: 1.2rem;">📁 Crear nueva carpeta</h3>
+                    <input type="text" id="input-nombre-carpeta" class="form-input" placeholder="Nombre de la carpeta" style="margin-bottom: 20px; width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px 12px; border-radius: 6px;">
+                    <div class="flex justify-end gap-12" style="display: flex; gap: 12px; justify-content: flex-end;">
+                        <button class="btn btn-secondary" id="btn-cancelar-carpeta">Cancelar</button>
+                        <button class="btn btn-primary" id="btn-confirmar-carpeta">Crear</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
 
@@ -117,13 +128,44 @@ function bindEvents(container, jugadores) {
         });
     });
 
-    // Nueva Carpeta
-    document.getElementById('btn-nueva-carpeta')?.addEventListener('click', async () => {
-        const nombre = prompt('Nombre de la nueva carpeta:');
-        if (nombre && nombre.trim()) {
-            await window.api.createCarpeta(nombre.trim());
+    // Nueva Carpeta (Modal)
+    const modal = document.getElementById('modal-nueva-carpeta');
+    const inputNombre = document.getElementById('input-nombre-carpeta');
+    
+    document.getElementById('btn-nueva-carpeta')?.addEventListener('click', () => {
+        if (modal && inputNombre) {
+            inputNombre.value = '';
+            modal.style.display = 'flex';
+            inputNombre.focus();
+        }
+    });
+
+    document.getElementById('btn-cancelar-carpeta')?.addEventListener('click', () => {
+        if (modal) modal.style.display = 'none';
+    });
+
+    const confirmarCarpeta = async () => {
+        const nombre = inputNombre?.value.trim();
+        if (nombre) {
+            await window.api.createCarpeta(nombre);
             allCarpetas = await window.api.getCarpetas();
+            if (modal) modal.style.display = 'none';
             renderDashboard(container, jugadores);
+        }
+    };
+
+    document.getElementById('btn-confirmar-carpeta')?.addEventListener('click', confirmarCarpeta);
+
+    inputNombre?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            confirmarCarpeta();
+        }
+    });
+
+    // Cerrar modal al hacer click fuera
+    modal?.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.style.display = 'none';
         }
     });
 

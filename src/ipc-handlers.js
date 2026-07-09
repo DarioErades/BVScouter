@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron';
+import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
 import { getDB } from './database.js';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -257,18 +257,63 @@ ipcMain.handle('stats:getByPartido', (_event, partidoId) => {
 });
 
 // ---- VIDEO HIGHLIGHTS ----
+
+// para cachear vídeos de YouTube descargados y no bajarlos cada vez
+const ytCache = new Map();
+
+async function resolverVideoPath(partido) {
+  if (partido.video_tipo === 'local') {
+    if (!fs.existsSync(partido.video_url)) {
+      throw new Error('El archivo de vídeo original no existe.');
+    }
+    return partido.video_url;
+  }
+
+  if (partido.video_tipo === 'youtube') {
+    // si ya lo descargamos antes, reutilizamos
+    if (ytCache.has(partido.video_url) && fs.existsSync(ytCache.get(partido.video_url))) {
+      return ytCache.get(partido.video_url);
+    }
+
+    const tmpDir = path.join(os.tmpdir(), 'bvscouter_yt');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
+    // nombre basado en hash simple de la url para no repetir
+    const safeId = partido.video_url.replace(/[^a-zA-Z0-9]/g, '_').slice(-60);
+    const outputPath = path.join(tmpDir, `${safeId}.mp4`);
+
+    if (fs.existsSync(outputPath)) {
+      ytCache.set(partido.video_url, outputPath);
+      return outputPath;
+    }
+
+    // descargamos con yt-dlp en formato mp4
+    const escapedUrl = partido.video_url.replace(/"/g, '\\"');
+    const escapedOut = outputPath.replace(/"/g, '\\"');
+    const cmd = `yt-dlp -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best" --merge-output-format mp4 -o "${escapedOut}" "${escapedUrl}"`;
+    await execAsync(cmd, { timeout: 600000 });
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('No se pudo descargar el vídeo de YouTube.');
+    }
+
+    ytCache.set(partido.video_url, outputPath);
+    return outputPath;
+  }
+
+  throw new Error('Tipo de vídeo no soportado para generar highlights.');
+}
+
 ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) => {
   const db = getDB();
   
   const partido = db.prepare('SELECT video_url, video_tipo FROM partidos WHERE id = ?').get(partidoId);
-  if (!partido || partido.video_tipo !== 'local' || !partido.video_url) {
-    throw new Error('El partido no tiene un vídeo local configurado.');
+  if (!partido || !partido.video_url || (partido.video_tipo !== 'local' && partido.video_tipo !== 'youtube')) {
+    throw new Error('El partido no tiene un vídeo válido configurado.');
   }
-  
-  const videoPath = partido.video_url;
-  if (!fs.existsSync(videoPath)) {
-    throw new Error('El archivo de vídeo original no existe.');
-  }
+
+  // resolvemos la ruta real del vídeo (descarga si es YouTube)
+  const videoPath = await resolverVideoPath(partido);
 
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: 'Guardar Vídeo',
@@ -314,7 +359,6 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   const preMargin = filters.pre_margin !== undefined ? parseFloat(filters.pre_margin) : 3;
   const postMargin = filters.post_margin !== undefined ? parseFloat(filters.post_margin) : 1;
 
-  // Create intervals and merge overlapping ones
   let intervals = acciones.map(a => ({
       start: Math.max(0, a.video_timestamp - preMargin),
       end: a.video_timestamp + postMargin
@@ -349,6 +393,8 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
       const escapedOutput = filePath.replace(/"/g, '\\"');
       const cmd = `ffmpeg -y -f concat -safe 0 -i "${escapedConcat}" -c copy "${escapedOutput}"`;
       await execAsync(cmd);
+      // abrimos el vídeo generado directamente
+      shell.openPath(filePath);
       return filePath;
   } catch (err) {
       console.error('Error con FFmpeg:', err);

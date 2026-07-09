@@ -13,12 +13,14 @@
     <div id="app">
         <nav id="sidebar" class="sidebar">
             <div class="sidebar-logo">
-                <span class="logo-icon">🏐</span>
-                <span class="logo-text">BVScouter</span>
+                <div style="display:flex; align-items:center; gap: 12px; flex:1;" class="logo-container">
+                    <span class="logo-icon">🏐</span>
+                    <span class="logo-text">BVScouter</span>
+                </div>
+                <button id="btn-toggle-sidebar" title="Ocultar/Mostrar menú" style="background:transparent; border:none; color:var(--text-muted); cursor:pointer; font-size:24px; padding: 0 4px; line-height: 1;">≡</button>
             </div>
             <ul class="sidebar-nav">
                 <li><a href="#" data-page="dashboard" class="nav-link active"><span class="nav-icon">📊</span> Dashboard</a></li>
-                <li><a href="#" data-page="jugadores" class="nav-link"><span class="nav-icon">👥</span> Jugadores</a></li>
                 <li><a href="#" data-page="nuevo-partido" class="nav-link"><span class="nav-icon">➕</span> Nuevo Partido</a></li>
                 <li><a href="#" data-page="guia" class="nav-link"><span class="nav-icon">📖</span> Guía de Uso</a></li>
             </ul>

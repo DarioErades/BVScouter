@@ -35,5 +35,10 @@ document.querySelectorAll('.nav-link').forEach(link => {
     });
 });
 
+// toggle menu lateral
+document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('collapsed');
+});
+
 // arrancamos en el dashboard
 router.navigate('dashboard');

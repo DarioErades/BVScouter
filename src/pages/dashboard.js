@@ -20,10 +20,7 @@ export function registerDashboard() {
                         <div class="stat-value">${partidos.length}</div>
                         <div class="stat-label">Partidos Analizados</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value">${jugadores.length}</div>
-                        <div class="stat-label">Jugadores Registrados</div>
-                    </div>
+
                     <div class="stat-card">
                         <div class="stat-value">${getPartidosMes(partidos)}</div>
                         <div class="stat-label">Partidos Este Mes</div>
@@ -72,6 +69,7 @@ export function registerDashboard() {
                                                 <div class="flex gap-8">
                                                     <button class="btn btn-sm btn-secondary btn-scouting" data-id="${p.id}">📋 Scouting</button>
                                                     <button class="btn btn-sm btn-secondary btn-informe" data-id="${p.id}">📊 Informe</button>
+                                                    <button class="btn btn-sm btn-secondary btn-eliminar-partido" data-id="${p.id}" title="Eliminar Partido" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); padding: 0 8px;">🗑️</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -98,6 +96,16 @@ export function registerDashboard() {
         document.querySelectorAll('.btn-informe').forEach(btn => {
             btn.addEventListener('click', () => {
                 router.navigate('informe', { partidoId: parseInt(btn.dataset.id) });
+            });
+        });
+
+        document.querySelectorAll('.btn-eliminar-partido').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (confirm('¿Seguro que quieres eliminar este partido y TODAS sus acciones? Esto no se puede deshacer.')) {
+                    await window.api.deletePartido(parseInt(btn.dataset.id));
+                    // recargamos el dashboard
+                    router.navigate('dashboard');
+                }
             });
         });
     });

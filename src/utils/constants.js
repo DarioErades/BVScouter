@@ -54,7 +54,8 @@ export const SUBTIPOS = {
         { label: 'Defensa (8)', key: '8' },
         { label: 'Defensa (9)', key: '9' },
         { label: 'Defensa (10)', key: '0' },
-        { label: 'Error (-)', key: '-' }
+        { label: 'Error (-)', key: '-' },
+        { label: 'Neutra', key: ',' }
     ]
 };
 
@@ -62,7 +63,8 @@ export const RESULTADOS = {
     punto: { label: 'Punto', icon: '✓', class: 'punto' },
     error: { label: 'Error', icon: '✗', class: 'error' },
     continuidad: { label: 'Continuidad', icon: '↺', class: 'continuidad' },
-    bloqueado: { label: 'Bloqueado', icon: '🛡️', class: 'bloqueado' }
+    bloqueado: { label: 'Bloqueado', icon: '🛡️', class: 'bloqueado' },
+    neutra: { label: 'Neutra', icon: '—', class: 'continuidad' }
 };
 
 export const COMPLEJOS = {
@@ -98,7 +100,6 @@ export const SHORTCUTS = {
     'ArrowRight': { action: 'videoForward' },
     'ArrowLeft': { action: 'videoBackward' },
     '.': { action: 'videoFrameForward' },
-    ',': { action: 'videoFrameBackward' },
     '-': { action: 'videoSlower' },
     '+': { action: 'videoFaster' },
     'f': { action: 'videoFullscreen' }

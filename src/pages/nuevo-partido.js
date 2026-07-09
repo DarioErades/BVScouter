@@ -6,8 +6,6 @@ import { FASES_TORNEO } from '../utils/constants.js';
 
 export function registerNuevoPartido() {
     router.register('nuevo-partido', async (container) => {
-        const jugadores = await window.api.getJugadores();
-
         container.innerHTML = `
             <div class="nuevo-partido-page">
                 <div class="page-header">
@@ -15,17 +13,7 @@ export function registerNuevoPartido() {
                     <p class="page-subtitle">Configura el partido antes de empezar el scouting</p>
                 </div>
 
-                ${jugadores.length < 2 ? `
-                    <div class="card">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">⚠️</div>
-                            <p class="empty-state-text">Necesitas al menos 2 jugadores registrados</p>
-                            <p class="empty-state-hint">Ve a la sección de Jugadores para añadir los rivales</p>
-                            <button class="btn btn-primary mt-16" id="btn-ir-jugadores">Ir a Jugadores</button>
-                        </div>
-                    </div>
-                ` : `
-                    <div class="card" style="max-width: 700px;">
+                <div class="card" style="max-width: 700px;">
                         <form id="form-partido">
                             <div class="form-row">
                                 <div class="form-group">
@@ -38,32 +26,33 @@ export function registerNuevoPartido() {
                                 </div>
                             </div>
 
-                            <div class="form-group">
-                                <label class="form-label">Fase</label>
-                                <select class="form-select" id="input-fase">
-                                    <option value="">Seleccionar fase...</option>
-                                    ${FASES_TORNEO.map(f => `<option value="${f}">${f}</option>`).join('')}
-                                </select>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Fase</label>
+                                    <select class="form-select" id="input-fase">
+                                        <option value="">Seleccionar fase...</option>
+                                        ${FASES_TORNEO.map(f => `<option value="${f}">${f}</option>`).join('')}
+                                    </select>
+                                </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Pareja a Analizar *</label>
+                                    <input type="text" class="form-input" id="input-pareja" placeholder="Ej: Herrera/Gavira" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Pareja Rival *</label>
+                                    <input type="text" class="form-input" id="input-rival" placeholder="Ej: Mol/Sorum" required>
+                                </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label class="form-label">Jugador 1 (Rival) *</label>
-                                    <select class="form-select" id="input-jugador1" required>
-                                        <option value="">Seleccionar...</option>
-                                        ${jugadores.map(j => `
-                                            <option value="${j.id}">${j.nombre} ${j.apellidos}</option>
-                                        `).join('')}
-                                    </select>
+                                    <label class="form-label">Nombre Jugador 1 *</label>
+                                    <input type="text" class="form-input" id="input-jugador1" placeholder="Ej: Anders" required>
                                 </div>
                                 <div class="form-group">
-                                    <label class="form-label">Jugador 2 (Rival) *</label>
-                                    <select class="form-select" id="input-jugador2" required>
-                                        <option value="">Seleccionar...</option>
-                                        ${jugadores.map(j => `
-                                            <option value="${j.id}">${j.nombre} ${j.apellidos}</option>
-                                        `).join('')}
-                                    </select>
+                                    <label class="form-label">Nombre Jugador 2 *</label>
+                                    <input type="text" class="form-input" id="input-jugador2" placeholder="Ej: Christian" required>
                                 </div>
                             </div>
 
@@ -116,14 +105,8 @@ export function registerNuevoPartido() {
                             </div>
                         </form>
                     </div>
-                `}
             </div>
         `;
-
-        // ir a jugadores si no hay suficientes
-        document.getElementById('btn-ir-jugadores')?.addEventListener('click', () => {
-            router.navigate('jugadores');
-        });
 
         // toggle video inputs
         document.querySelectorAll('input[name="video-tipo"]').forEach(radio => {
@@ -147,18 +130,19 @@ export function registerNuevoPartido() {
 
         // submit del formulario
         const handleSubmit = async (startScouting) => {
-            const jugador1 = document.getElementById('input-jugador1').value;
-            const jugador2 = document.getElementById('input-jugador2').value;
+            const nombreJ1 = document.getElementById('input-jugador1').value.trim();
+            const nombreJ2 = document.getElementById('input-jugador2').value.trim();
+            const pareja = document.getElementById('input-pareja').value.trim();
+            const rival = document.getElementById('input-rival').value.trim();
 
-            if (!jugador1 || !jugador2) {
-                showToast('Selecciona ambos jugadores', 'error');
+            if (!nombreJ1 || !nombreJ2 || !pareja || !rival) {
+                showToast('Rellena todos los campos obligatorios de nombres', 'error');
                 return;
             }
 
-            if (jugador1 === jugador2) {
-                showToast('Los jugadores deben ser diferentes', 'error');
-                return;
-            }
+            // Crear jugadores "al vuelo" en la base de datos
+            const jugador1Id = await window.api.createJugador({ nombre: nombreJ1, apellidos: '', nacionalidad: '', posicion: '', notas: `Equipo: ${pareja}` });
+            const jugador2Id = await window.api.createJugador({ nombre: nombreJ2, apellidos: '', nacionalidad: '', posicion: '', notas: `Equipo: ${pareja}` });
 
             const tipo = document.querySelector('input[name="video-tipo"]:checked').value;
             let videoUrl = '';
@@ -168,15 +152,18 @@ export function registerNuevoPartido() {
                 videoUrl = videoFilePath;
             }
 
+            const notasGuardadas = document.getElementById('input-notas').value.trim();
+            const notasFinales = notasGuardadas ? `Pareja: ${pareja} vs ${rival}\n${notasGuardadas}` : `Pareja: ${pareja} vs ${rival}`;
+
             const data = {
                 fecha: document.getElementById('input-fecha').value,
                 torneo: document.getElementById('input-torneo').value.trim(),
                 fase: document.getElementById('input-fase').value,
-                jugador1_id: parseInt(jugador1),
-                jugador2_id: parseInt(jugador2),
+                jugador1_id: jugador1Id,
+                jugador2_id: jugador2Id,
                 video_tipo: tipo === 'none' ? '' : tipo,
                 video_url: videoUrl,
-                notas: document.getElementById('input-notas').value.trim()
+                notas: notasFinales
             };
 
             const partidoId = await window.api.createPartido(data);

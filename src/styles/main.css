@@ -83,6 +83,36 @@ html, body {
     flex-direction: column;
     flex-shrink: 0;
     z-index: 100;
+    transition: width var(--transition-normal);
+    overflow: hidden;
+}
+
+.sidebar.collapsed {
+    width: 68px;
+}
+
+.sidebar.collapsed .logo-container {
+    display: none !important;
+}
+
+.sidebar.collapsed .sidebar-logo {
+    padding: 24px 0;
+    justify-content: center;
+}
+
+.sidebar.collapsed .nav-link {
+    justify-content: center;
+    padding: 12px 0;
+    font-size: 0;
+}
+
+.sidebar.collapsed .nav-icon {
+    font-size: 20px;
+    margin: 0;
+}
+
+.sidebar.collapsed .version {
+    display: none;
 }
 
 .sidebar-logo {

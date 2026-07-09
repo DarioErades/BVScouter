@@ -163,6 +163,7 @@ function calcularStatsJugador(acciones, jugadorId) {
     let defensasPuntuadas = 0;
     let erroresDefensa = 0;
     defensas.forEach(a => {
+        if (a.resultado === 'neutra') return; // las neutras no cuentan para la media
         if (a.resultado === 'error') {
             erroresDefensa++;
         } else {

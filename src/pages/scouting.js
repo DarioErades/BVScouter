@@ -110,7 +110,7 @@ function renderScoutingUI(container) {
                     <button class="btn btn-sm btn-primary" id="btn-finalizar-set">🏁 Finalizar Set</button>
                     <button class="btn btn-sm btn-secondary" id="btn-notas-partido">📝 Notas</button>
                     <button class="btn btn-sm btn-secondary" id="btn-guardar-partido">💾 Guardar</button>
-                    <button class="btn btn-sm btn-secondary" id="btn-generador-videos" ${partido.video_tipo === 'local' ? '' : 'style="display:none;"'}>🎬 Vídeos</button>
+                    <button class="btn btn-sm btn-secondary" id="btn-generador-videos" ${(partido.video_tipo === 'local' || partido.video_tipo === 'youtube') ? '' : 'style="display:none;"'}>🎬 Vídeos</button>
                     <button class="btn btn-sm btn-secondary" id="btn-ver-informe">📊 Informe</button>
                     <button class="btn btn-sm btn-secondary" id="btn-volver">← Volver</button>
                 </div>
@@ -907,12 +907,12 @@ function setupKeyboardShortcuts(container) {
         if (scoutingState.tipoAccion) {
             const subs = SUBTIPOS[scoutingState.tipoAccion];
             if (subs) {
-                const sub = subs.find(s => s.key === e.key.toLowerCase());
+                const sub = subs.find(s => s.key === e.key);
                 if (sub) {
                     e.preventDefault();
                     scoutingState.subtipo = sub.label;
                     if (scoutingState.ataqueModalAbierto) closeAttackModal();
-                    registrarAccion(); // fast register
+                    registrarAccion();
                 }
             }
         }
@@ -1251,6 +1251,11 @@ async function registrarAccion(forceResult = null) {
     // chequeo automatico de errores: si pulsamos el subtipo de error, lo marcamos como error
     if (scoutingState.subtipo === 'Error (0)' || scoutingState.subtipo === 'Error de Ataque' || scoutingState.subtipo === 'Error (-)') {
         res = 'error';
+    }
+
+    // defensa neutra no cuenta como punto ni como error
+    if (scoutingState.subtipo === 'Neutra') {
+        res = 'neutra';
     }
 
     // Detector de Ataque de Segundo Toque

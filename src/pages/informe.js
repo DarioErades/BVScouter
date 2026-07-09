@@ -121,6 +121,12 @@ export function registerInforme() {
                         </div>
                     </div>
 
+                    <!-- seccion progresion de puntos -->
+                    <div class="report-section" id="section-progresion">
+                        <h2 class="report-section-title">📈 Progresión de Puntos</h2>
+                        ${renderProgresionPuntos(accionesFiltradas)}
+                    </div>
+
                     <!-- seccion 1: side-out -->
                     <div class="report-section">
                         <h2 class="report-section-title">⭐ Porcentaje de Side-Out</h2>
@@ -361,7 +367,7 @@ export function registerInforme() {
                         </div>
                     </div>
 
-                    <div class="report-section" id="section-highlights" ${partido.video_tipo === 'local' ? '' : 'style="display:none;"'}>
+                    <div class="report-section" id="section-highlights" ${(partido.video_tipo === 'local' || partido.video_tipo === 'youtube') ? '' : 'style="display:none;"'}>
                         <h2 class="report-section-title">🎬 Generador de Vídeos</h2>
                         <div class="report-grid" style="background: #1a2332; padding: 20px; border-radius: 12px; border: 1px solid #1e293b;">
                             <div style="flex: 1; min-width: 200px;">
@@ -559,6 +565,59 @@ function formatRecepciones(dist) {
     if (!dist) return 'Sin datos';
     // limpiamos el string para que se vea más corto, por ejemplo "Recepción (3)" -> "(3)"
     return Object.entries(dist).map(([k, v]) => `${k.replace('Recepción ', '')}: ${v}`).join(' · ') || 'Sin datos';
+}
+
+function renderProgresionPuntos(acciones) {
+    const sets = [...new Set(acciones.map(a => a.set_numero))].sort();
+    if (sets.length === 0) return '<p style="color: #64748b; padding: 16px;">Sin datos de puntos.</p>';
+
+    return sets.map(s => {
+        const accionesSet = acciones.filter(a => a.set_numero === s && a.tipo_accion !== 'fin_set');
+        let nosScore = 0;
+        let rivScore = 0;
+        const puntos = []; // { pos, nos, riv, team }
+
+        accionesSet.forEach(a => {
+            if (a.resultado === 'punto') {
+                nosScore++;
+                puntos.push({ pos: puntos.length, nos: nosScore, riv: rivScore, team: 'nos' });
+            } else if (a.resultado === 'error' || a.resultado === 'bloqueado') {
+                rivScore++;
+                puntos.push({ pos: puntos.length, nos: nosScore, riv: rivScore, team: 'riv' });
+            }
+        });
+
+        if (puntos.length === 0) return '';
+
+        // generar las dos filas
+        const nosBoxes = puntos.map(p => {
+            if (p.team === 'nos') {
+                return `<span style="display:inline-block; width:26px; height:26px; line-height:26px; text-align:center; background:#10b981; color:#fff; border-radius:4px; font-size:11px; font-weight:700; margin:1px;">${p.nos}</span>`;
+            }
+            return `<span style="display:inline-block; width:26px; height:26px; margin:1px;"></span>`;
+        }).join('');
+
+        const rivBoxes = puntos.map(p => {
+            if (p.team === 'riv') {
+                return `<span style="display:inline-block; width:26px; height:26px; line-height:26px; text-align:center; background:#ef4444; color:#fff; border-radius:4px; font-size:11px; font-weight:700; margin:1px;">${p.riv}</span>`;
+            }
+            return `<span style="display:inline-block; width:26px; height:26px; margin:1px;"></span>`;
+        }).join('');
+
+        return `
+            <div style="background: #1a2332; border: 1px solid #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 12px;">
+                <div style="font-size: 14px; font-weight: 700; color: #f59e0b; margin-bottom: 12px;">Set ${s} — Final: ${nosScore}-${rivScore}</div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; overflow-x: auto;">
+                    <span style="min-width: 36px; font-size: 11px; font-weight: 600; color: #10b981;">NOS</span>
+                    <div style="display: flex; flex-wrap: nowrap;">${nosBoxes}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; overflow-x: auto;">
+                    <span style="min-width: 36px; font-size: 11px; font-weight: 600; color: #ef4444;">RIV</span>
+                    <div style="display: flex; flex-wrap: nowrap;">${rivBoxes}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 function renderCharts(stats, j1Nombre, j2Nombre) {

@@ -1,12 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('api', {
-  // jugadores
-  getJugadores: () => ipcRenderer.invoke('jugadores:getAll'),
-  getJugador: (id) => ipcRenderer.invoke('jugadores:getById', id),
-  createJugador: (data) => ipcRenderer.invoke('jugadores:create', data),
-  updateJugador: (id, data) => ipcRenderer.invoke('jugadores:update', id, data),
-  deleteJugador: (id) => ipcRenderer.invoke('jugadores:delete', id),
   // partidos
   getPartidos: () => ipcRenderer.invoke('partidos:getAll'),
   getPartido: (id) => ipcRenderer.invoke('partidos:getById', id),

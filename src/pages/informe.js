@@ -65,8 +65,8 @@ export function registerInforme() {
                 ? acciones 
                 : acciones.filter(a => a.set_numero === parseInt(currentSetFilter));
 
-            const stats = calcularStats(accionesFiltradas, partido.jugador1_id, partido.jugador2_id);
-            const patrones = detectarPatrones(accionesFiltradas, j1Nombre, j2Nombre, partido.jugador1_id, partido.jugador2_id);
+            const stats = calcularStats(accionesFiltradas, partido.jugador1_nombre, partido.jugador2_nombre);
+            const patrones = detectarPatrones(accionesFiltradas, partido.jugador1_nombre, partido.jugador2_nombre);
 
             container.innerHTML = `
                 <div class="report-container page-enter">
@@ -271,6 +271,20 @@ export function registerInforme() {
                                 <div class="chart-wrapper"><canvas id="chart-ataques-k2-j2"></canvas></div>
                             </div>
                         </div>
+                        <div class="report-grid mt-16" style="margin-top: 24px;">
+                            <div class="chart-container">
+                                <div class="chart-title">Heatmap de Ataque - ${j1Nombre}</div>
+                                <div class="heatmap-wrapper" style="display: flex; justify-content: center; align-items: center; padding: 20px;">
+                                    ${renderHeatmap(stats.jugador1.distribucionAtaquesGeneral)}
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <div class="chart-title">Heatmap de Ataque - ${j2Nombre}</div>
+                                <div class="heatmap-wrapper" style="display: flex; justify-content: center; align-items: center; padding: 20px;">
+                                    ${renderHeatmap(stats.jugador2.distribucionAtaquesGeneral)}
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- seccion 4: saques -->
@@ -374,8 +388,8 @@ export function registerInforme() {
                                 <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Jugador</label>
                                 <select id="hl-jugador" class="form-input">
                                     <option value="">Ambos Jugadores</option>
-                                    <option value="${partido.jugador1_id}">${partido.jugador1_nombre}</option>
-                                    <option value="${partido.jugador2_id}">${partido.jugador2_nombre}</option>
+                                    <option value="${partido.jugador1_nombre}">${partido.jugador1_nombre}</option>
+                                    <option value="${partido.jugador2_nombre}">${partido.jugador2_nombre}</option>
                                 </select>
                             </div>
                             <div style="flex: 1; min-width: 200px;">
@@ -471,7 +485,7 @@ export function registerInforme() {
                     const mPre = document.getElementById('hl-margin-pre').value;
                     const mPost = document.getElementById('hl-margin-post').value;
                     
-                    if (jug) filters.jugador_id = parseInt(jug);
+                    if (jug) filters.jugador_nombre = jug;
                     if (comp) filters.complejo = comp;
                     if (acc) filters.tipo_accion = acc;
                     if (res) filters.resultado = res;
@@ -856,6 +870,78 @@ function renderCharts(stats, j1Nombre, j2Nombre) {
             options: optionsSaques
         }));
     }
+}
+
+function renderHeatmap(distribucion) {
+    let zLargaL = 0, zLargaD = 0, zLargaC = 0;
+    let zCortaL = 0, zCortaD = 0, zCortaC = 0;
+    
+    let total = 0;
+    Object.keys(distribucion).forEach(k => {
+        const amt = distribucion[k].total;
+        total += amt;
+        const sub = k.toLowerCase();
+        
+        if (sub.includes('línea larga') || (sub.includes('línea') && !sub.includes('corta'))) zLargaL += amt;
+        else if (sub.includes('línea corta')) zCortaL += amt;
+        
+        else if (sub.includes('diago larga') || (sub.includes('diagonal') && !sub.includes('corta'))) zLargaD += amt;
+        else if (sub.includes('diago corta')) zCortaD += amt;
+        
+        else if (sub.includes('centro') || sub.includes('medio')) {
+            // Repartir centro un poco
+            zLargaC += Math.ceil(amt * 0.7);
+            zCortaC += Math.floor(amt * 0.3);
+        }
+    });
+
+    if (total === 0) return '<p class="text-muted">No hay datos de dirección de ataque</p>';
+
+    const getIntensity = (val) => {
+        if (val === 0) return 'rgba(30, 41, 59, 0.5)';
+        const pct = val / total;
+        // color gradient from blue to red based on percentage
+        if (pct < 0.1) return 'rgba(59, 130, 246, 0.6)'; // blue
+        if (pct < 0.25) return 'rgba(16, 185, 129, 0.7)'; // green
+        if (pct < 0.4) return 'rgba(245, 158, 11, 0.8)'; // orange
+        return 'rgba(239, 68, 68, 0.9)'; // red
+    };
+
+    return `
+        <div style="width: 240px; height: 240px; border: 2px solid #fff; background: #eab308; position: relative; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; padding: 2px;">
+            <!-- Red / Net indicator -->
+            <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 6px; background: rgba(255,255,255,0.8); z-index: 10;"></div>
+            
+            <!-- Fila Fondo (Larga) -->
+            <div style="background: ${getIntensity(zLargaL)}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 1px 1px 2px black;">
+                <span style="font-size: 10px; opacity: 0.8;">Línea L</span>
+                <span>${zLargaL > 0 ? Math.round((zLargaL/total)*100)+'%' : ''}</span>
+            </div>
+            <div style="background: ${getIntensity(zLargaC)}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 1px 1px 2px black;">
+                <span style="font-size: 10px; opacity: 0.8;">Fondo M</span>
+                <span>${zLargaC > 0 ? Math.round((zLargaC/total)*100)+'%' : ''}</span>
+            </div>
+            <div style="background: ${getIntensity(zLargaD)}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 1px 1px 2px black;">
+                <span style="font-size: 10px; opacity: 0.8;">Diago L</span>
+                <span>${zLargaD > 0 ? Math.round((zLargaD/total)*100)+'%' : ''}</span>
+            </div>
+            
+            <!-- Fila Red (Corta) -->
+            <div style="background: ${getIntensity(zCortaL)}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 1px 1px 2px black;">
+                <span style="font-size: 10px; opacity: 0.8;">Línea C</span>
+                <span>${zCortaL > 0 ? Math.round((zCortaL/total)*100)+'%' : ''}</span>
+            </div>
+            <div style="background: ${getIntensity(zCortaC)}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 1px 1px 2px black;">
+                <span style="font-size: 10px; opacity: 0.8;">Corto M</span>
+                <span>${zCortaC > 0 ? Math.round((zCortaC/total)*100)+'%' : ''}</span>
+            </div>
+            <div style="background: ${getIntensity(zCortaD)}; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 1px 1px 2px black;">
+                <span style="font-size: 10px; opacity: 0.8;">Diago C</span>
+                <span>${zCortaD > 0 ? Math.round((zCortaD/total)*100)+'%' : ''}</span>
+            </div>
+        </div>
+        <div style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 8px;">* Vista desde el lado del rival (abajo es la red)</div>
+    `;
 }
 
 function renderDoughnutChart(canvasId, golpesData) {

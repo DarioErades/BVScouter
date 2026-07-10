@@ -1,52 +1,14 @@
 import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
 import { getDB } from './database.js';
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
-// ---- JUGADORES ----
-
-ipcMain.handle('jugadores:getAll', () => {
-  const db = getDB();
-  return db.prepare('SELECT * FROM jugadores ORDER BY apellidos').all();
-});
-
-ipcMain.handle('jugadores:getById', (_event, id) => {
-  const db = getDB();
-  return db.prepare('SELECT * FROM jugadores WHERE id = ?').get(id);
-});
-
-ipcMain.handle('jugadores:create', (_event, data) => {
-  const db = getDB();
-  const stmt = db.prepare(`
-    INSERT INTO jugadores (nombre, apellidos, nacionalidad, posicion, notas)
-    VALUES (@nombre, @apellidos, @nacionalidad, @posicion, @notas)
-  `);
-  const result = stmt.run(data);
-  return result.lastInsertRowid;
-});
-
-ipcMain.handle('jugadores:update', (_event, id, data) => {
-  const db = getDB();
-  const stmt = db.prepare(`
-    UPDATE jugadores
-    SET nombre = @nombre, apellidos = @apellidos, nacionalidad = @nacionalidad,
-        posicion = @posicion, notas = @notas
-    WHERE id = @id
-  `);
-  return stmt.run({ ...data, id });
-});
-
-ipcMain.handle('jugadores:delete', (_event, id) => {
-  const db = getDB();
-  // borramos también las acciones relacionadas
-  db.prepare('DELETE FROM acciones WHERE jugador_id = ?').run(id);
-  return db.prepare('DELETE FROM jugadores WHERE id = ?').run(id);
-});
 
 // ---- CARPETAS ----
 
@@ -74,38 +36,29 @@ ipcMain.handle('carpetas:delete', (_event, id) => {
 ipcMain.handle('partidos:getAll', () => {
   const db = getDB();
   return db.prepare(`
-    SELECT p.*,
-      j1.nombre AS jugador1_nombre, j1.apellidos AS jugador1_apellidos,
-      j2.nombre AS jugador2_nombre, j2.apellidos AS jugador2_apellidos
-    FROM partidos p
-    LEFT JOIN jugadores j1 ON p.jugador1_id = j1.id
-    LEFT JOIN jugadores j2 ON p.jugador2_id = j2.id
-    ORDER BY p.fecha DESC
+    SELECT *
+    FROM partidos
+    ORDER BY fecha DESC
   `).all();
 });
 
 ipcMain.handle('partidos:getById', (_event, id) => {
   const db = getDB();
   return db.prepare(`
-    SELECT p.*,
-      j1.nombre AS jugador1_nombre, j1.apellidos AS jugador1_apellidos,
-      j2.nombre AS jugador2_nombre, j2.apellidos AS jugador2_apellidos
-    FROM partidos p
-    LEFT JOIN jugadores j1 ON p.jugador1_id = j1.id
-    LEFT JOIN jugadores j2 ON p.jugador2_id = j2.id
-    WHERE p.id = ?
+    SELECT *
+    FROM partidos
+    WHERE id = ?
   `).get(id);
 });
 
 ipcMain.handle('partidos:create', (_event, data) => {
   const db = getDB();
   const stmt = db.prepare(`
-    INSERT INTO partidos (fecha, torneo, fase, jugador1_id, jugador2_id, video_tipo, video_url, resultado, notas)
-    VALUES (@fecha, @torneo, @fase, @jugador1_id, @jugador2_id, @video_tipo, @video_url, @resultado, @notas)
+    INSERT INTO partidos (fecha, torneo, fase, jugador1_nombre, jugador2_nombre, video_tipo, video_url, resultado, notas)
+    VALUES (@fecha, @torneo, @fase, @jugador1_nombre, @jugador2_nombre, @video_tipo, @video_url, @resultado, @notas)
   `);
-  // rellenamos campos opcionales que puedan faltar
   const completeData = {
-    fecha: '', torneo: '', fase: '', jugador1_id: 0, jugador2_id: 0,
+    fecha: '', torneo: '', fase: '', jugador1_nombre: '', jugador2_nombre: '',
     video_tipo: '', video_url: '', resultado: '', notas: '',
     ...data
   };
@@ -125,9 +78,12 @@ ipcMain.handle('partidos:update', (_event, id, data) => {
 
 ipcMain.handle('partidos:delete', (_event, id) => {
   const db = getDB();
-  // primero las acciones del partido
-  db.prepare('DELETE FROM acciones WHERE partido_id = ?').run(id);
-  return db.prepare('DELETE FROM partidos WHERE id = ?').run(id);
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM acciones WHERE partido_id = ?').run(id);
+    db.prepare('DELETE FROM partidos WHERE id = ?').run(id);
+  });
+  transaction();
+  return true;
 });
 
 ipcMain.handle('partidos:moveToCarpeta', (_event, partidoId, carpetaId) => {
@@ -140,21 +96,20 @@ ipcMain.handle('partidos:moveToCarpeta', (_event, partidoId, carpetaId) => {
 ipcMain.handle('acciones:getByPartido', (_event, partidoId) => {
   const db = getDB();
   return db.prepare(`
-    SELECT a.*, j.nombre || ' ' || j.apellidos AS jugador_nombre
-    FROM acciones a
-    LEFT JOIN jugadores j ON a.jugador_id = j.id
-    WHERE a.partido_id = ?
-    ORDER BY a.id
+    SELECT *
+    FROM acciones
+    WHERE partido_id = ?
+    ORDER BY id
   `).all(partidoId);
 });
 
 ipcMain.handle('acciones:create', (_event, data) => {
   const db = getDB();
   const stmt = db.prepare(`
-    INSERT INTO acciones (partido_id, jugador_id, complejo, tipo_accion, subtipo, resultado, set_numero, marcador_local, marcador_rival, video_timestamp, zona_campo)
-    VALUES (@partido_id, @jugador_id, @complejo, @tipo_accion, @subtipo, @resultado, @set_numero, @marcador_local, @marcador_rival, @video_timestamp, @zona_campo)
+    INSERT INTO acciones (partido_id, jugador_nombre, complejo, tipo_accion, subtipo, resultado, set_numero, marcador_local, marcador_rival, video_timestamp, zona_campo, es_favorito)
+    VALUES (@partido_id, @jugador_nombre, @complejo, @tipo_accion, @subtipo, @resultado, @set_numero, @marcador_local, @marcador_rival, @video_timestamp, @zona_campo, @es_favorito)
   `);
-  const result = stmt.run(data);
+  const result = stmt.run({...data, es_favorito: data.es_favorito ? 1 : 0});
   return result.lastInsertRowid;
 });
 
@@ -202,70 +157,62 @@ ipcMain.handle('dialog:openFile', async () => {
 ipcMain.handle('stats:getByPartido', (_event, partidoId) => {
   const db = getDB();
 
-  // total de acciones por jugador
   const totalAcciones = db.prepare(`
-    SELECT jugador_id, j.nombre || ' ' || j.apellidos AS jugador_nombre, COUNT(*) AS total
-    FROM acciones a
-    LEFT JOIN jugadores j ON a.jugador_id = j.id
-    WHERE a.partido_id = ?
-    GROUP BY jugador_id
+    SELECT jugador_nombre, COUNT(*) AS total
+    FROM acciones
+    WHERE partido_id = ?
+    GROUP BY jugador_nombre
   `).all(partidoId);
 
-  // side-out: acciones en K1 con resultado 'punto' vs total K1
   const sideOut = db.prepare(`
-    SELECT jugador_id,
+    SELECT jugador_nombre,
       COUNT(*) AS total_k1,
       SUM(CASE WHEN resultado = 'punto' THEN 1 ELSE 0 END) AS puntos_k1
     FROM acciones
     WHERE partido_id = ? AND complejo = 'K1'
-    GROUP BY jugador_id
+    GROUP BY jugador_nombre
   `).all(partidoId);
 
   const sideOutPorJugador = sideOut.map(row => ({
-    jugador_id: row.jugador_id,
+    jugador_nombre: row.jugador_nombre,
     total_k1: row.total_k1,
     puntos_k1: row.puntos_k1,
     porcentaje: row.total_k1 > 0 ? Math.round((row.puntos_k1 / row.total_k1) * 100) : 0
   }));
 
-  // distribución de tipos de ataque por jugador
   const ataques = db.prepare(`
-    SELECT jugador_id, subtipo, resultado, COUNT(*) AS total
+    SELECT jugador_nombre, subtipo, resultado, COUNT(*) AS total
     FROM acciones
     WHERE partido_id = ? AND tipo_accion = 'ataque'
-    GROUP BY jugador_id, subtipo, resultado
+    GROUP BY jugador_nombre, subtipo, resultado
   `).all(partidoId);
 
-  // distribución de saques por jugador
   const saques = db.prepare(`
-    SELECT jugador_id, subtipo, resultado, COUNT(*) AS total
+    SELECT jugador_nombre, subtipo, resultado, COUNT(*) AS total
     FROM acciones
     WHERE partido_id = ? AND tipo_accion = 'saque'
-    GROUP BY jugador_id, subtipo, resultado
+    GROUP BY jugador_nombre, subtipo, resultado
   `).all(partidoId);
 
-  // calidad de recepción promedio por jugador
-  // usamos el subtipo como calificación numérica si se puede
   const recepcion = db.prepare(`
-    SELECT jugador_id, resultado, COUNT(*) AS total
+    SELECT jugador_nombre, resultado, COUNT(*) AS total
     FROM acciones
     WHERE partido_id = ? AND tipo_accion = 'recepcion'
-    GROUP BY jugador_id, resultado
+    GROUP BY jugador_nombre, resultado
   `).all(partidoId);
 
-  // eficacia de ataque: (puntos - errores) / total * 100
   const eficaciaAtaque = db.prepare(`
-    SELECT jugador_id,
+    SELECT jugador_nombre,
       COUNT(*) AS total,
       SUM(CASE WHEN resultado = 'punto' THEN 1 ELSE 0 END) AS puntos,
       SUM(CASE WHEN resultado = 'error' THEN 1 ELSE 0 END) AS errores
     FROM acciones
     WHERE partido_id = ? AND tipo_accion = 'ataque'
-    GROUP BY jugador_id
+    GROUP BY jugador_nombre
   `).all(partidoId);
 
   const eficaciaPorJugador = eficaciaAtaque.map(row => ({
-    jugador_id: row.jugador_id,
+    jugador_nombre: row.jugador_nombre,
     total: row.total,
     puntos: row.puntos,
     errores: row.errores,
@@ -313,12 +260,17 @@ async function resolverVideoPath(partido) {
       return outputPath;
     }
 
-    // descargamos con yt-dlp en formato mp4
-    const escapedUrl = partido.video_url.replace(/"/g, '\\"');
-    const escapedOut = outputPath.replace(/"/g, '\\"');
     const ytdlp = fs.existsSync('/home/dario/.local/bin/yt-dlp') ? '/home/dario/.local/bin/yt-dlp' : 'yt-dlp';
-    const cmd = `${ytdlp} -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best" --merge-output-format mp4 -o "${escapedOut}" "${escapedUrl}"`;
-    await execAsync(cmd, { timeout: 600000 });
+    try {
+      await execFileAsync(ytdlp, [
+        '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best',
+        '--merge-output-format', 'mp4',
+        '-o', outputPath,
+        partido.video_url
+      ], { timeout: 600000 });
+    } catch(e) {
+      console.error(e);
+    }
 
     if (!fs.existsSync(outputPath)) {
       throw new Error('No se pudo descargar el vídeo de YouTube.');
@@ -355,10 +307,12 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   let query = 'SELECT video_timestamp, marcador_local, marcador_rival, set_numero, complejo, tipo_accion FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
   const params = [partidoId];
 
-  if (filters.modo !== 'puntos') {
-    if (filters.jugador_id) {
-      query += ' AND jugador_id = ?';
-      params.push(filters.jugador_id);
+  if (filters.modo === 'favoritos') {
+    query += ' AND es_favorito = 1';
+  } else if (filters.modo !== 'puntos') {
+    if (filters.jugador_nombre) {
+      query += ' AND jugador_nombre = ?';
+      params.push(filters.jugador_nombre);
     }
     if (filters.complejo) {
       query += ' AND complejo = ?';
@@ -459,7 +413,13 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   // comprobamos si tiene audio para que el filtro no pete
   let hasAudio = false;
   try {
-      const { stdout } = await execAsync(`ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "${videoPath.replace(/"/g, '\\"')}"`);
+      const { stdout } = await execFileAsync('ffprobe', [
+        '-v', 'error',
+        '-select_streams', 'a',
+        '-show_entries', 'stream=index',
+        '-of', 'csv=p=0',
+        videoPath
+      ]);
       hasAudio = stdout.trim().length > 0;
   } catch(e) {}
 
@@ -485,15 +445,17 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   fs.writeFileSync(filterFilePath, filterGraph);
   
   try {
-      const escapedFilter = filterFilePath.replace(/"/g, '\\"');
-      const escapedVideo = videoPath.replace(/"/g, '\\"');
-      const escapedOutput = filePath.replace(/"/g, '\\"');
-      
       // re-encode the segments, fixes glitching perfectly
-      const audioMap = hasAudio ? ' -map "[outa]" ' : ' ';
-      const cmd = `ffmpeg -y -i "${escapedVideo}" -filter_complex_script "${escapedFilter}" -map "[outv]"${audioMap}"${escapedOutput}"`;
+      const audioMap = hasAudio ? ['-map', '[outa]'] : [];
+      await execFileAsync('ffmpeg', [
+        '-y',
+        '-i', videoPath,
+        '-filter_complex_script', filterFilePath,
+        '-map', '[outv]',
+        ...audioMap,
+        filePath
+      ]);
       
-      await execAsync(cmd);
       shell.openPath(filePath);
       return filePath;
   } catch (err) {

@@ -1,16 +1,19 @@
 // calculador de estadísticas
 
-export function calcularStats(acciones, jugador1Id, jugador2Id) {
+export function calcularStats(accionesOriginales, jugador1Nombre, jugador2Nombre) {
+    // Clonar acciones para no mutar el estado global
+    const acciones = accionesOriginales.map(a => ({...a}));
+    
     const stats = {
-        jugador1: calcularStatsJugador(acciones, jugador1Id),
-        jugador2: calcularStatsJugador(acciones, jugador2Id),
+        jugador1: calcularStatsJugador(acciones, jugador1Nombre),
+        jugador2: calcularStatsJugador(acciones, jugador2Nombre),
         general: calcularStatsGenerales(acciones)
     };
     return stats;
 }
 
-function calcularStatsJugador(acciones, jugadorId) {
-    const accionesJugador = acciones.filter(a => a.jugador_id === jugadorId);
+function calcularStatsJugador(acciones, jugadorNombre) {
+    const accionesJugador = acciones.filter(a => a.jugador_nombre === jugadorNombre);
 
     // K1 a la primera vs K1 en transicion
     const ralliesK1 = {};
@@ -33,9 +36,9 @@ function calcularStatsJugador(acciones, jugadorId) {
         const isFBSO = ataques.length <= 1 && defensas.length === 0;
 
         const puntoRally = rally.some(a => a.resultado === 'punto');
-        const recibioJugador = rally.some(a => a.tipo_accion === 'recepcion' && a.jugador_id === jugadorId);
-        const atacoJugador = rally.some(a => a.tipo_accion === 'ataque' && a.jugador_id === jugadorId);
-        const hizoPunto = rally.some(a => a.resultado === 'punto' && a.jugador_id === jugadorId);
+        const recibioJugador = rally.some(a => a.tipo_accion === 'recepcion' && a.jugador_nombre === jugadorNombre);
+        const atacoJugador = rally.some(a => a.tipo_accion === 'ataque' && a.jugador_nombre === jugadorNombre);
+        const hizoPunto = rally.some(a => a.resultado === 'punto' && a.jugador_nombre === jugadorNombre);
         
         // En voley playa, el side-out se atribuye a quien recibe.
         // Si no hay recepcion registrada, se lo atribuimos a quien atacó o hizo el punto.
@@ -56,7 +59,7 @@ function calcularStatsJugador(acciones, jugadorId) {
     const totalK1 = fbsoOportunidades + transOportunidades;
     const puntosK1 = fbsoPuntos + transPuntos;
 
-    const sideOutFirstPct = totalK1 > 0 ? Math.round((fbsoPuntos / totalK1) * 100) : 0;
+    const sideOutFirstPct = fbsoOportunidades > 0 ? Math.round((fbsoPuntos / fbsoOportunidades) * 100) : 0;
     const sideOutTransPct = totalK1 > 0 ? Math.round((puntosK1 / totalK1) * 100) : 0;
 
     // Marcar ataques con fase (K1 vs K2)
@@ -129,7 +132,7 @@ function calcularStatsJugador(acciones, jugadorId) {
     // calidad de recepcion promedio
     const recepciones = accionesJugador.filter(a => a.tipo_accion === 'recepcion');
     let calidadRecepcion = 0;
-    let totalRecepciones = recepciones.length || 1;
+    let totalRecepciones = recepciones.length;
     const distribucionRecepcion = {};
     recepciones.forEach(a => {
         const sub = a.subtipo || 'Sin definir';
@@ -140,13 +143,13 @@ function calcularStatsJugador(acciones, jugadorId) {
         if (match) calidadRecepcion += parseInt(match[1]);
     });
     // Sacamos la media sobre 10 (asumiendo que 3 es la nota máxima por acción)
-    const recepcionPromedio = ((calidadRecepcion / totalRecepciones) * (10 / 3)).toFixed(1);
+    const recepcionPromedio = totalRecepciones > 0 ? ((calidadRecepcion / totalRecepciones) * (10 / 3)).toFixed(1) : '0.0';
 
     // eficacia de ataque
     const killsAtaque = ataques.filter(a => a.resultado === 'punto').length;
     const erroresAtaque = ataques.filter(a => a.resultado === 'error').length;
-    const totalAtaques = ataques.length || 1;
-    const eficaciaAtaque = Math.round(((killsAtaque - erroresAtaque) / totalAtaques) * 100);
+    const totalAtaques = ataques.length;
+    const eficaciaAtaque = totalAtaques > 0 ? Math.round(((killsAtaque - erroresAtaque) / totalAtaques) * 100) : 0;
 
     // bloqueos
     const bloqueos = accionesJugador.filter(a => a.tipo_accion === 'bloqueo');
@@ -280,14 +283,11 @@ function calcularStatsGenerales(acciones) {
 }
 
 // detectar patrones automaticamente
-export function detectarPatrones(acciones, jugador1Nombre, jugador2Nombre, jugador1Id, jugador2Id) {
+export function detectarPatrones(acciones, jugador1Nombre, jugador2Nombre) {
     const patrones = [];
 
-    [
-        { id: jugador1Id, nombre: jugador1Nombre },
-        { id: jugador2Id, nombre: jugador2Nombre }
-    ].forEach(({ id, nombre }) => {
-        const accionesJ = acciones.filter(a => a.jugador_id === id);
+    [jugador1Nombre, jugador2Nombre].forEach((nombre) => {
+        const accionesJ = acciones.filter(a => a.jugador_nombre === nombre);
         const ataques = accionesJ.filter(a => a.tipo_accion === 'ataque');
 
         // patron: tipo de ataque favorito

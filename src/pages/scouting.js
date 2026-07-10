@@ -25,7 +25,7 @@ export function registerScouting() {
             partidoId: params.partidoId,
             partido,
             acciones,
-            jugadorSeleccionado: partido.jugador1_id,
+            jugadorSeleccionado: partido.jugador1_nombre,
             equipoAlSaque: 'local', // 'local' o 'rival'
             tipoAccion: null,
             subtipo: null,
@@ -130,14 +130,14 @@ function renderScoutingUI(container) {
                 <div>
                     <div class="form-label">Jugador</div>
                     <div class="player-selector">
-                        <button class="player-btn ${scoutingState.jugadorSeleccionado === partido.jugador1_id ? 'active' : ''}"
-                                data-player="${partido.jugador1_id}" id="player-btn-1">
-                            ${partido.jugador1_nombre} ${partido.jugador1_apellidos.charAt(0)}.
+                        <button class="player-btn ${scoutingState.jugadorSeleccionado === partido.jugador1_nombre ? 'active' : ''}"
+                                data-player="${partido.jugador1_nombre}" id="player-btn-1">
+                            ${partido.jugador1_nombre}
                             <span class="player-shortcut">Tecla: 1</span>
                         </button>
-                        <button class="player-btn ${scoutingState.jugadorSeleccionado === partido.jugador2_id ? 'active' : ''}"
-                                data-player="${partido.jugador2_id}" id="player-btn-2">
-                            ${partido.jugador2_nombre} ${partido.jugador2_apellidos.charAt(0)}.
+                        <button class="player-btn ${scoutingState.jugadorSeleccionado === partido.jugador2_nombre ? 'active' : ''}"
+                                data-player="${partido.jugador2_nombre}" id="player-btn-2">
+                            ${partido.jugador2_nombre}
                             <span class="player-shortcut">Tecla: 2</span>
                         </button>
                     </div>
@@ -240,6 +240,7 @@ function renderScoutingUI(container) {
                         <select id="vid-generar-modo" class="form-input" style="width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 6px; height: 38px;">
                             <option value="filtrar">Filtrar jugadas específicas</option>
                             <option value="puntos">Todos los puntos completos (de principio a fin)</option>
+                            <option value="favoritos">Sólo las jugadas marcadas como Favoritas ⭐</option>
                         </select>
                     </div>
                     
@@ -249,8 +250,8 @@ function renderScoutingUI(container) {
                                 <label class="form-label">Jugador</label>
                                 <select id="vid-jugador" class="form-input">
                                     <option value="">Ambos Jugadores</option>
-                                    <option value="${partido.jugador1_id}">${partido.jugador1_nombre} ${partido.jugador1_apellidos}</option>
-                                    <option value="${partido.jugador2_id}">${partido.jugador2_nombre} ${partido.jugador2_apellidos}</option>
+                                    <option value="${partido.jugador1_nombre}">${partido.jugador1_nombre}</option>
+                                    <option value="${partido.jugador2_nombre}">${partido.jugador2_nombre}</option>
                                 </select>
                             </div>
                             <div style="flex: 1;">
@@ -313,8 +314,8 @@ function renderScoutingUI(container) {
                     <div>
                         <label class="form-label">Jugador</label>
                         <select id="edit-jugador" class="form-input">
-                            <option value="${partido.jugador1_id}">${partido.jugador1_nombre} ${partido.jugador1_apellidos}</option>
-                            <option value="${partido.jugador2_id}">${partido.jugador2_nombre} ${partido.jugador2_apellidos}</option>
+                            <option value="${partido.jugador1_nombre}">${partido.jugador1_nombre}</option>
+                            <option value="${partido.jugador2_nombre}">${partido.jugador2_nombre}</option>
                         </select>
                     </div>
                     <div>
@@ -496,8 +497,8 @@ function setupEditActionEvents() {
         const mPre = document.getElementById('vid-margin-pre').value;
         const mPost = document.getElementById('vid-margin-post').value;
         
-        if (modo !== 'puntos') {
-            if (jug) filters.jugador_id = parseInt(jug);
+        if (modo !== 'puntos' && modo !== 'favoritos') {
+            if (jug) filters.jugador_nombre = jug;
             if (comp) filters.complejo = comp;
             if (acc) filters.tipo_accion = acc;
             if (res) filters.resultado = res;
@@ -533,7 +534,7 @@ function setupEditActionEvents() {
         if (!scoutingState.editingActionId) return;
 
         const updatedData = {
-            jugador_id: parseInt(document.getElementById('edit-jugador').value, 10),
+            jugador_nombre: document.getElementById('edit-jugador').value,
             tipo_accion: document.getElementById('edit-tipo').value,
             subtipo: document.getElementById('edit-subtipo').value,
             resultado: document.getElementById('edit-resultado').value
@@ -597,7 +598,11 @@ function renderVideoPlayer() {
                 <div class="video-progress-bar" id="video-progress-bar"></div>
             </div>
             <span class="video-time" id="video-time">00:00 / 00:00</span>
-            <span class="speed-indicator" id="speed-indicator">1x</span>
+            <div style="display:flex; align-items:center; gap:2px; margin-left:8px; margin-right:8px;">
+                <button id="btn-speed-down" style="background:transparent; border:none; color:white; cursor:pointer;" title="Reducir Velocidad">-</button>
+                <span class="speed-indicator" id="speed-indicator" style="min-width:30px; text-align:center;">1x</span>
+                <button id="btn-speed-up" style="background:transparent; border:none; color:white; cursor:pointer;" title="Aumentar Velocidad">+</button>
+            </div>
             <button id="btn-fullscreen">⛶</button>
         </div>
     `;
@@ -667,6 +672,11 @@ function setupVideoPlayer(container) {
             videoContainer.requestFullscreen();
         }
     });
+
+    const speedDown = document.getElementById('btn-speed-down');
+    if (speedDown) speedDown.addEventListener('click', () => changeVideoSpeed(-0.25));
+    const speedUp = document.getElementById('btn-speed-up');
+    if (speedUp) speedUp.addEventListener('click', () => changeVideoSpeed(0.25));
 }
 
 function setupActionPanelEvents(container) {
@@ -675,7 +685,7 @@ function setupActionPanelEvents(container) {
     // selector de jugador
     document.querySelectorAll('.player-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            scoutingState.jugadorSeleccionado = parseInt(btn.dataset.player);
+            scoutingState.jugadorSeleccionado = btn.dataset.player;
             document.querySelectorAll('.player-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             updateCurrentActionText();
@@ -745,7 +755,7 @@ function setupActionPanelEvents(container) {
         // registramos el final de set en bbdd
         await window.api.createAccion({
             partido_id: scoutingState.partidoId,
-            jugador_id: scoutingState.partido.jugador1_id,
+            jugador_nombre: scoutingState.partido.jugador1_nombre,
             complejo: 'K1',
             tipo_accion: 'fin_set',
             subtipo: 'Ganador Set',
@@ -795,6 +805,10 @@ function setupActionPanelEvents(container) {
             document.getElementById('btn-fullscreen-timeline').textContent = '⛶';
         }
     });
+
+    router.registerDestroy(() => {
+        limpiarShortcuts();
+    });
 }
 
 function setupKeyboardShortcuts(container) {
@@ -827,12 +841,12 @@ function setupKeyboardShortcuts(container) {
 
         switch (shortcut.action) {
             case 'selectPlayer':
-                const playerId = shortcut.value === 1
-                    ? scoutingState.partido.jugador1_id
-                    : scoutingState.partido.jugador2_id;
-                scoutingState.jugadorSeleccionado = playerId;
+                const playerName = shortcut.value === 1
+                    ? scoutingState.partido.jugador1_nombre
+                    : scoutingState.partido.jugador2_nombre;
+                scoutingState.jugadorSeleccionado = playerName;
                 document.querySelectorAll('.player-btn').forEach(b => b.classList.remove('active'));
-                document.querySelector(`[data-player="${playerId}"]`)?.classList.add('active');
+                document.querySelector(`[data-player="${playerName}"]`)?.classList.add('active');
                 updateCurrentActionText();
                 break;
 
@@ -848,7 +862,7 @@ function setupKeyboardShortcuts(container) {
                     
                     const data = {
                         partido_id: scoutingState.partidoId,
-                        jugador_id: scoutingState.partido.jugador1_id,
+                        jugador_nombre: scoutingState.partido.jugador1_nombre,
                         complejo: scoutingState.equipoAlSaque === 'rival' ? 'K1' : 'K2',
                         tipo_accion: 'rival',
                         subtipo: 'Acierto Rival',
@@ -887,7 +901,7 @@ function setupKeyboardShortcuts(container) {
                     
                     const data = {
                         partido_id: scoutingState.partidoId,
-                        jugador_id: scoutingState.partido.jugador1_id,
+                        jugador_nombre: scoutingState.partido.jugador1_nombre,
                         complejo: scoutingState.equipoAlSaque === 'rival' ? 'K1' : 'K2',
                         tipo_accion: 'rival',
                         subtipo: 'Error Rival',
@@ -918,7 +932,7 @@ function setupKeyboardShortcuts(container) {
                         
                         const data = {
                             partido_id: scoutingState.partidoId,
-                            jugador_id: scoutingState.partido.jugador1_id,
+                            jugador_nombre: scoutingState.partido.jugador1_nombre,
                             complejo: scoutingState.equipoAlSaque === 'rival' ? 'K1' : 'K2',
                             tipo_accion: 'error_general',
                             subtipo: 'Error',
@@ -1370,7 +1384,7 @@ async function registrarAccion(forceResult = null) {
         
         if (ultimaNuestra && 
             (ultimaNuestra.tipo_accion === 'recepcion' || ultimaNuestra.tipo_accion === 'defensa') && 
-            ultimaNuestra.jugador_id !== scoutingState.jugadorSeleccionado) {
+            ultimaNuestra.jugador_nombre !== scoutingState.jugadorSeleccionado) {
             
             if (scoutingState.subtipo && !scoutingState.subtipo.includes('2º Toque')) {
                 scoutingState.subtipo += ' (2º Toque)';
@@ -1380,7 +1394,7 @@ async function registrarAccion(forceResult = null) {
 
     const data = {
         partido_id: scoutingState.partidoId,
-        jugador_id: scoutingState.jugadorSeleccionado,
+        jugador_nombre: scoutingState.jugadorSeleccionado,
         complejo: complejoActual,
         tipo_accion: scoutingState.tipoAccion,
         subtipo: scoutingState.subtipo || '',
@@ -1425,8 +1439,12 @@ async function registrarAccion(forceResult = null) {
 async function markLastAction(resultType) {
     if (scoutingState.acciones.length === 0) return;
     
-    // coger la ultima
     const ultima = scoutingState.acciones[scoutingState.acciones.length - 1];
+    if (ultima.resultado === resultType) return;
+    
+    // deshacer el score de la accion anterior
+    if (ultima.resultado === 'punto') updateScore('local', -1);
+    else if (ultima.resultado === 'error' || ultima.resultado === 'bloqueado') updateScore('rival', -1);
     
     // actualizar db
     await window.api.updateAccion(ultima.id, { resultado: resultType });
@@ -1434,9 +1452,9 @@ async function markLastAction(resultType) {
     
     // auto-sumar punto
     if (resultType === 'punto') {
-        updateScore('local', 1); // nuestro jugador hizo punto, sube local
+        updateScore('local', 1);
     } else if (resultType === 'error' || resultType === 'bloqueado') {
-        updateScore('rival', 1); // nuestro jugador falló o fue bloqueado, sube rival
+        updateScore('rival', 1);
     }
     
     refreshTimelineAndStats();
@@ -1468,13 +1486,25 @@ function refreshTimelineAndStats() {
             if (!action) return;
 
             scoutingState.editingActionId = id;
-            document.getElementById('edit-jugador').value = action.jugador_id;
+            document.getElementById('edit-jugador').value = action.jugador_nombre;
             document.getElementById('edit-tipo').value = action.tipo_accion;
             populateEditSubtipo(action.tipo_accion, action.subtipo || '');
             document.getElementById('edit-resultado').value = action.resultado || 'continuidad';
 
             document.getElementById('edit-action-modal').style.display = 'flex';
             scoutingState.wizardModalAbierto = true;
+        });
+    });
+
+    timelineItems.querySelectorAll('.btn-fav-action').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = parseInt(btn.dataset.actionId, 10);
+            const action = scoutingState.acciones.find(a => a.id === id);
+            if (!action) return;
+            action.es_favorito = action.es_favorito ? 0 : 1;
+            await window.api.updateAccion(id, { es_favorito: action.es_favorito });
+            btn.textContent = action.es_favorito ? '⭐' : '☆';
+            showToast(action.es_favorito ? 'Añadido a favoritos' : 'Eliminado de favoritos', 'info');
         });
     });
 
@@ -1499,6 +1529,23 @@ async function deshacerUltimaAccion() {
     if (scoutingState.acciones.length === 0) {
         showToast('No hay acciones para deshacer', 'error');
         return;
+    }
+
+    const ultima = scoutingState.acciones[scoutingState.acciones.length - 1];
+    
+    // Si la accion deshecha tenia un resultado que sumaba punto, restarlo
+    if (ultima.resultado === 'punto') {
+        if (ultima.tipo_accion === 'error_general' || ultima.tipo_accion === 'rival') {
+            updateScore('local', -1);
+        } else {
+            updateScore('local', -1);
+        }
+    } else if (ultima.resultado === 'error' || ultima.resultado === 'bloqueado') {
+        if (ultima.tipo_accion === 'error_general' || ultima.tipo_accion === 'rival') {
+            updateScore('rival', -1);
+        } else {
+            updateScore('rival', -1);
+        }
     }
 
     await window.api.undoLastAccion(scoutingState.partidoId);
@@ -1574,7 +1621,7 @@ function renderTimeline() {
         const items = rally.acciones.map(a => {
             const resultado = a.resultado || 'continuidad';
             const tipoLabel = TIPOS_ACCION[a.tipo_accion]?.label || a.tipo_accion;
-            const isJ1 = a.jugador_id === scoutingState.partido.jugador1_id;
+            const isJ1 = a.jugador_nombre === scoutingState.partido.jugador1_nombre;
             let playerTag = isJ1 ? 'J1' : 'J2';
             if (a.tipo_accion === 'rival') playerTag = 'RIVAL';
             if (a.tipo_accion === 'error_general') playerTag = 'LOCAL';
@@ -1589,6 +1636,7 @@ function renderTimeline() {
                     ${a.subtipo ? `· ${a.subtipo}` : ''}
                     ${RESULTADOS[resultado]?.icon || ''}
                     <div style="margin-left: auto; display: flex; gap: 4px;">
+                        <button class="btn-fav-action" data-action-id="${a.id}" title="Favorito">${a.es_favorito ? '⭐' : '☆'}</button>
                         <button class="btn-edit-action" data-action-id="${a.id}" title="Editar Acción">✏️</button>
                         <button class="btn-delete-action" data-action-id="${a.id}" title="Eliminar Acción">×</button>
                     </div>
@@ -1602,7 +1650,7 @@ function renderTimeline() {
 
 function renderLiveStats() {
     const { acciones, partido } = scoutingState;
-    const stats = calcularStats(acciones, partido.jugador1_id, partido.jugador2_id);
+    const stats = calcularStats(acciones, partido.jugador1_nombre, partido.jugador2_nombre);
 
     const j1 = stats.jugador1;
     const j2 = stats.jugador2;
@@ -1647,10 +1695,10 @@ function updateCurrentActionText() {
     if (!text) return;
 
     const parts = [];
-    const isJ1 = scoutingState.jugadorSeleccionado === scoutingState.partido.jugador1_id;
+    const isJ1 = scoutingState.jugadorSeleccionado === scoutingState.partido.jugador1_nombre;
     parts.push(isJ1 ? scoutingState.partido.jugador1_nombre : scoutingState.partido.jugador2_nombre);
     
-    const complejo = scoutingState.equipoAlSaque === 'local' ? 'K1' : 'K2';
+    const complejo = scoutingState.equipoAlSaque === 'rival' ? 'K1' : 'K2';
     parts.push(`[${complejo}]`);
     
     if (scoutingState.tipoAccion) {

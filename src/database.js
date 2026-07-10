@@ -13,36 +13,24 @@ export function initDatabase() {
   db.pragma('foreign_keys = ON');
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS jugadores (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nombre TEXT NOT NULL,
-      apellidos TEXT NOT NULL,
-      nacionalidad TEXT DEFAULT '',
-      posicion TEXT DEFAULT '',
-      notas TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
     CREATE TABLE IF NOT EXISTS partidos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       fecha TEXT NOT NULL,
       torneo TEXT DEFAULT '',
       fase TEXT DEFAULT '',
-      jugador1_id INTEGER NOT NULL,
-      jugador2_id INTEGER NOT NULL,
+      jugador1_nombre TEXT NOT NULL,
+      jugador2_nombre TEXT NOT NULL,
       video_tipo TEXT DEFAULT 'local',
       video_url TEXT DEFAULT '',
       resultado TEXT DEFAULT '',
       notas TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (jugador1_id) REFERENCES jugadores(id),
-      FOREIGN KEY (jugador2_id) REFERENCES jugadores(id)
+      created_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS acciones (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       partido_id INTEGER NOT NULL,
-      jugador_id INTEGER NOT NULL,
+      jugador_nombre TEXT NOT NULL,
       complejo TEXT NOT NULL DEFAULT 'K1',
       tipo_accion TEXT NOT NULL,
       subtipo TEXT DEFAULT '',
@@ -52,9 +40,9 @@ export function initDatabase() {
       marcador_rival TEXT DEFAULT '0',
       video_timestamp REAL DEFAULT 0,
       zona_campo TEXT DEFAULT '',
+      es_favorito INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (partido_id) REFERENCES partidos(id),
-      FOREIGN KEY (jugador_id) REFERENCES jugadores(id)
+      FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS carpetas (
@@ -64,11 +52,38 @@ export function initDatabase() {
     );
   `);
 
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_acciones_partido ON acciones(partido_id);
+    CREATE INDEX IF NOT EXISTS idx_acciones_jugador ON acciones(jugador_nombre);
+  `);
+
   try {
-    db.exec(`ALTER TABLE partidos ADD COLUMN carpeta_id INTEGER REFERENCES carpetas(id)`);
-  } catch (err) {
-    // La columna ya existe
-  }
+    db.exec(`ALTER TABLE partidos ADD COLUMN carpeta_id INTEGER REFERENCES carpetas(id) ON DELETE SET NULL`);
+  } catch (err) {}
+
+  try {
+    // migracion para cambiar de IDs a nombres
+    db.exec(`ALTER TABLE partidos ADD COLUMN jugador1_nombre TEXT DEFAULT ''`);
+    db.exec(`ALTER TABLE partidos ADD COLUMN jugador2_nombre TEXT DEFAULT ''`);
+    db.exec(`ALTER TABLE acciones ADD COLUMN jugador_nombre TEXT DEFAULT ''`);
+    
+    // migracion de los nombres si la tabla existia
+    db.exec(`
+      UPDATE partidos SET 
+        jugador1_nombre = (SELECT nombre FROM jugadores WHERE id = partidos.jugador1_id),
+        jugador2_nombre = (SELECT nombre FROM jugadores WHERE id = partidos.jugador2_id)
+      WHERE (jugador1_nombre = '' OR jugador1_nombre IS NULL) AND jugador1_id IS NOT NULL;
+    `);
+    db.exec(`
+      UPDATE acciones SET 
+        jugador_nombre = (SELECT nombre FROM jugadores WHERE id = acciones.jugador_id)
+      WHERE (jugador_nombre = '' OR jugador_nombre IS NULL) AND jugador_id IS NOT NULL;
+    `);
+  } catch (err) {}
+
+  try {
+      db.exec(`ALTER TABLE acciones ADD COLUMN es_favorito INTEGER DEFAULT 0`);
+  } catch(err) {}
 
   return db;
 }

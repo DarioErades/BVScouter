@@ -4,16 +4,26 @@ class Router {
     constructor() {
         this.routes = {};
         this.currentPage = null;
+        this.currentDestroy = null;
     }
 
     register(name, renderFn) {
         this.routes[name] = renderFn;
     }
 
+    registerDestroy(fn) {
+        this.currentDestroy = fn;
+    }
+
     async navigate(pageName, params = {}) {
         if (!this.routes[pageName]) {
             console.error(`Página "${pageName}" no registrada`);
             return;
+        }
+
+        if (this.currentDestroy) {
+            this.currentDestroy();
+            this.currentDestroy = null;
         }
 
         const content = document.getElementById('content');

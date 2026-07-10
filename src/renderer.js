@@ -12,14 +12,12 @@ import './styles/report.css';
 
 import { router } from './router.js';
 import { registerDashboard } from './pages/dashboard.js';
-import { registerJugadores } from './pages/jugadores.js';
 import { registerNuevoPartido } from './pages/nuevo-partido.js';
 import { registerScouting } from './pages/scouting.js';
 import { registerInforme } from './pages/informe.js';
 
 // registramos todas las paginas
 registerDashboard();
-registerJugadores();
 registerNuevoPartido();
 registerScouting();
 registerInforme();
@@ -36,6 +34,13 @@ document.querySelectorAll('.nav-link').forEach(link => {
 // toggle menu lateral
 document.getElementById('btn-toggle-sidebar')?.addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('collapsed');
+});
+
+// handler de errores global
+window.addEventListener('unhandledrejection', e => {
+    console.error('Unhandled rejection:', e.reason);
+    const msg = e.reason?.message || String(e.reason) || 'Error desconocido';
+    if (window.showToast) showToast(`Error: ${msg}`, 'error');
 });
 
 // arrancamos en el dashboard

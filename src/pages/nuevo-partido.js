@@ -141,10 +141,7 @@ export function registerNuevoPartido() {
                 return;
             }
 
-            // Crear jugadores "al vuelo" en la base de datos
-            const jugador1Id = await window.api.createJugador({ nombre: nombreJ1, apellidos: '', nacionalidad: '', posicion: '', notas: `Equipo: ${pareja}` });
-            const jugador2Id = await window.api.createJugador({ nombre: nombreJ2, apellidos: '', nacionalidad: '', posicion: '', notas: `Equipo: ${pareja}` });
-
+            // Ya no creamos jugadores, pasamos los nombres directamente
             const tipo = document.querySelector('input[name="video-tipo"]:checked').value;
             let videoUrl = '';
             if (tipo === 'youtube') {
@@ -160,8 +157,8 @@ export function registerNuevoPartido() {
                 fecha: document.getElementById('input-fecha').value,
                 torneo: document.getElementById('input-torneo').value.trim(),
                 fase: document.getElementById('input-fase').value,
-                jugador1_id: jugador1Id,
-                jugador2_id: jugador2Id,
+                jugador1_nombre: nombreJ1,
+                jugador2_nombre: nombreJ2,
                 video_tipo: tipo === 'none' ? '' : tipo,
                 video_url: videoUrl,
                 notas: notasFinales

@@ -54,35 +54,39 @@ export function initDatabase() {
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_acciones_partido ON acciones(partido_id);
-    CREATE INDEX IF NOT EXISTS idx_acciones_jugador ON acciones(jugador_nombre);
   `);
 
   try {
     db.exec(`ALTER TABLE partidos ADD COLUMN carpeta_id INTEGER REFERENCES carpetas(id) ON DELETE SET NULL`);
   } catch (err) {}
 
+  try { db.exec(`ALTER TABLE partidos ADD COLUMN jugador1_nombre TEXT DEFAULT ''`); } catch (e) {}
+  try { db.exec(`ALTER TABLE partidos ADD COLUMN jugador2_nombre TEXT DEFAULT ''`); } catch (e) {}
+  try { db.exec(`ALTER TABLE acciones ADD COLUMN jugador_nombre TEXT DEFAULT ''`); } catch (e) {}
   try {
-    // migracion para cambiar de IDs a nombres
-    db.exec(`ALTER TABLE partidos ADD COLUMN jugador1_nombre TEXT DEFAULT ''`);
-    db.exec(`ALTER TABLE partidos ADD COLUMN jugador2_nombre TEXT DEFAULT ''`);
-    db.exec(`ALTER TABLE acciones ADD COLUMN jugador_nombre TEXT DEFAULT ''`);
-    
-    // migracion de los nombres si la tabla existia
-    db.exec(`
-      UPDATE partidos SET 
-        jugador1_nombre = (SELECT nombre FROM jugadores WHERE id = partidos.jugador1_id),
-        jugador2_nombre = (SELECT nombre FROM jugadores WHERE id = partidos.jugador2_id)
-      WHERE (jugador1_nombre = '' OR jugador1_nombre IS NULL) AND jugador1_id IS NOT NULL;
-    `);
-    db.exec(`
-      UPDATE acciones SET 
-        jugador_nombre = (SELECT nombre FROM jugadores WHERE id = acciones.jugador_id)
-      WHERE (jugador_nombre = '' OR jugador_nombre IS NULL) AND jugador_id IS NOT NULL;
-    `);
-  } catch (err) {}
+    // migracion de los nombres si la tabla existia (if it has the old columns)
+    const hasJugadorId = db.prepare("PRAGMA table_info(partidos)").all().some(c => c.name === 'jugador1_id');
+    if (hasJugadorId) {
+        db.exec(`
+          UPDATE partidos SET 
+            jugador1_nombre = (SELECT nombre FROM jugadores WHERE id = partidos.jugador1_id),
+            jugador2_nombre = (SELECT nombre FROM jugadores WHERE id = partidos.jugador2_id)
+          WHERE (jugador1_nombre = '' OR jugador1_nombre IS NULL) AND jugador1_id IS NOT NULL;
+        `);
+        db.exec(`
+          UPDATE acciones SET 
+            jugador_nombre = (SELECT nombre FROM jugadores WHERE id = acciones.jugador_id)
+          WHERE (jugador_nombre = '' OR jugador_nombre IS NULL) AND jugador_id IS NOT NULL;
+        `);
+    }
+  } catch (err) { console.error(err); }
 
   try {
       db.exec(`ALTER TABLE acciones ADD COLUMN es_favorito INTEGER DEFAULT 0`);
+  } catch(err) {}
+
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_acciones_jugador ON acciones(jugador_nombre);`);
   } catch(err) {}
 
   return db;

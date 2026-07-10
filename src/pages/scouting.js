@@ -66,8 +66,8 @@ export function registerScouting() {
 
 function renderScoutingUI(container) {
     const { partido } = scoutingState;
-    const j1Nombre = `${partido.jugador1_nombre} ${partido.jugador1_apellidos}`;
-    const j2Nombre = `${partido.jugador2_nombre} ${partido.jugador2_apellidos}`;
+    const j1Nombre = partido.jugador1_nombre;
+    const j2Nombre = partido.jugador2_nombre;
 
     const hasVideo = partido.video_tipo && partido.video_url;
 

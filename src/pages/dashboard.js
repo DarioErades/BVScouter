@@ -9,18 +9,17 @@ let allPartidos = [];
 
 export function registerDashboard() {
     router.register('dashboard', async (container) => {
-        const jugadores = await window.api.getJugadores();
         allPartidos = await window.api.getPartidos();
         allCarpetas = await window.api.getCarpetas();
         
         // si entramos de nuevas o el estado de la ruta indica otra cosa, pero por defecto a null (raiz)
         currentFolderId = null;
 
-        renderDashboard(container, jugadores);
+        renderDashboard(container);
     });
 }
 
-function renderDashboard(container, jugadores) {
+function renderDashboard(container) {
     const currentFolder = currentFolderId ? allCarpetas.find(c => c.id === currentFolderId) : null;
     
     // Filtramos partidos
@@ -79,7 +78,7 @@ function renderDashboard(container, jugadores) {
                                     <span style="font-size: 2rem;">🏐</span>
                                     <div>
                                         <div class="font-semibold text-white" style="font-size: 1rem; margin-bottom: 4px;">
-                                            ${p.jugador1_nombre} ${p.jugador1_apellidos} / ${p.jugador2_nombre} ${p.jugador2_apellidos}
+                                            ${p.jugador1_nombre} / ${p.jugador2_nombre}
                                         </div>
                                         <div style="font-size: 0.85rem; color: #94a3b8;">
                                             📅 ${formatDate(p.fecha)} ${p.torneo ? `| 🏆 ${p.torneo}` : ''} ${p.fase ? `| 🏷️ ${p.fase}` : ''}
@@ -115,10 +114,10 @@ function renderDashboard(container, jugadores) {
         </div>
     `;
 
-    bindEvents(container, jugadores);
+    bindEvents(container);
 }
 
-function bindEvents(container, jugadores) {
+function bindEvents(container) {
     // Nav breadcrumbs
     document.querySelectorAll('.btn-breadcrumb').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -151,7 +150,7 @@ function bindEvents(container, jugadores) {
                 // Mover a la raiz (carpeta_id = null)
                 await window.api.movePartidoToCarpeta(parseInt(partidoId), null);
                 allPartidos = await window.api.getPartidos(); // recargamos
-                renderDashboard(container, jugadores);
+                renderDashboard(container);
             }
         });
     });
@@ -178,7 +177,7 @@ function bindEvents(container, jugadores) {
             await window.api.createCarpeta(nombre);
             allCarpetas = await window.api.getCarpetas();
             if (modal) modal.style.display = 'none';
-            renderDashboard(container, jugadores);
+            renderDashboard(container);
         }
     };
 
@@ -202,7 +201,7 @@ function bindEvents(container, jugadores) {
         item.addEventListener('click', (e) => {
             if (e.target.closest('.btn-eliminar-carpeta')) return;
             currentFolderId = parseInt(item.dataset.id);
-            renderDashboard(container, jugadores);
+            renderDashboard(container);
         });
 
         // Eventos Drag and Drop para carpeta
@@ -227,7 +226,7 @@ function bindEvents(container, jugadores) {
                 const targetCarpetaId = parseInt(item.dataset.id);
                 await window.api.movePartidoToCarpeta(parseInt(partidoId), targetCarpetaId);
                 allPartidos = await window.api.getPartidos(); // recargamos
-                renderDashboard(container, jugadores);
+                renderDashboard(container);
             }
         });
     });
@@ -240,7 +239,7 @@ function bindEvents(container, jugadores) {
                 await window.api.deleteCarpeta(parseInt(btn.dataset.id));
                 allCarpetas = await window.api.getCarpetas();
                 allPartidos = await window.api.getPartidos();
-                renderDashboard(container, jugadores);
+                renderDashboard(container);
             }
         });
     });
@@ -281,7 +280,7 @@ function bindEvents(container, jugadores) {
             if (confirm('¿Seguro que quieres eliminar este partido y TODAS sus acciones? Esto no se puede deshacer.')) {
                 await window.api.deletePartido(parseInt(btn.dataset.id));
                 allPartidos = await window.api.getPartidos();
-                renderDashboard(container, jugadores);
+                renderDashboard(container);
             }
         });
     });

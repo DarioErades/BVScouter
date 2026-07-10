@@ -23,8 +23,8 @@ export function registerInforme() {
         const acciones = await window.api.getAcciones(params.partidoId);
         let currentSetFilter = 'all';
 
-        const j1Nombre = `${partido.jugador1_nombre} ${partido.jugador1_apellidos}`;
-        const j2Nombre = `${partido.jugador2_nombre} ${partido.jugador2_apellidos}`;
+        const j1Nombre = partido.jugador1_nombre;
+        const j2Nombre = partido.jugador2_nombre;
 
         let resultadoCalculado = partido.resultado || '0-0';
         if (acciones.length > 0) {

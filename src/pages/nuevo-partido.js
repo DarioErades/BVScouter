@@ -6,6 +6,7 @@ import { FASES_TORNEO } from '../utils/constants.js';
 
 export function registerNuevoPartido() {
     router.register('nuevo-partido', async (container) => {
+        const jugadores = await window.api.getJugadores().catch(() => []);
         container.innerHTML = `
             <div class="nuevo-partido-page">
                 <div class="page-header">
@@ -49,13 +50,20 @@ export function registerNuevoPartido() {
                             <div class="form-row">
                                 <div class="form-group">
                                     <label class="form-label">Nombre Jugador 1 *</label>
-                                    <input type="text" class="form-input" id="input-jugador1" placeholder="Ej: Anders" required>
+                                    <div class="autocomplete" id="ac-jugador1">
+                                        <input type="text" class="form-input" id="input-jugador1" placeholder="Buscar o escribir..." autocomplete="off" required>
+                                        <div class="autocomplete-list" id="list-jugador1"></div>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">Nombre Jugador 2 *</label>
-                                    <input type="text" class="form-input" id="input-jugador2" placeholder="Ej: Christian" required>
+                                    <div class="autocomplete" id="ac-jugador2">
+                                        <input type="text" class="form-input" id="input-jugador2" placeholder="Buscar o escribir..." autocomplete="off" required>
+                                        <div class="autocomplete-list" id="list-jugador2"></div>
+                                    </div>
                                 </div>
                             </div>
+                            <p class="text-muted" style="font-size:12px; margin-top:-8px;">💡 Sugerencias de tu base de datos de jugadores. Puedes gestionarlos en la sección <strong>Jugadores</strong>.</p>
 
                             <hr style="border: none; border-top: 1px solid var(--border); margin: 24px 0;">
 
@@ -108,6 +116,10 @@ export function registerNuevoPartido() {
                     </div>
             </div>
         `;
+
+        // buscadores de jugadores (autocomplete)
+        setupAutocomplete('input-jugador1', 'list-jugador1', jugadores);
+        setupAutocomplete('input-jugador2', 'list-jugador2', jugadores);
 
         // toggle video inputs
         document.querySelectorAll('input[name="video-tipo"]').forEach(radio => {
@@ -182,5 +194,70 @@ export function registerNuevoPartido() {
         document.getElementById('btn-solo-crear')?.addEventListener('click', () => {
             handleSubmit(false);
         });
+    });
+}
+
+function setupAutocomplete(inputId, listId, jugadores) {
+    const input = document.getElementById(inputId);
+    const list = document.getElementById(listId);
+    if (!input || !list) return;
+
+    const nombres = jugadores.map(j => ({
+        full: `${j.nombre}${j.apellidos ? ' ' + j.apellidos : ''}`.trim(),
+        sub: [j.nacionalidad, j.posicion].filter(Boolean).join(' · ')
+    }));
+
+    let activeIndex = -1;
+
+    const render = () => {
+        const q = input.value.trim().toLowerCase();
+        const matches = nombres
+            .filter(n => !q || n.full.toLowerCase().includes(q))
+            .slice(0, 8);
+
+        if (matches.length === 0) {
+            list.style.display = 'none';
+            list.innerHTML = '';
+            return;
+        }
+        activeIndex = -1;
+        list.innerHTML = matches.map((m, i) => `
+            <div class="autocomplete-item" data-index="${i}" data-value="${m.full.replace(/"/g, '&quot;')}">
+                <span class="ac-name">${m.full}</span>
+                ${m.sub ? `<span class="ac-sub">${m.sub}</span>` : ''}
+            </div>
+        `).join('');
+        list.style.display = 'block';
+
+        list.querySelectorAll('.autocomplete-item').forEach(item => {
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                input.value = item.dataset.value;
+                list.style.display = 'none';
+            });
+        });
+    };
+
+    input.addEventListener('focus', render);
+    input.addEventListener('input', render);
+    input.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none'; }, 120));
+    input.addEventListener('keydown', (e) => {
+        const items = list.querySelectorAll('.autocomplete-item');
+        if (list.style.display === 'none' || items.length === 0) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = Math.max(activeIndex - 1, 0);
+        } else if (e.key === 'Enter' && activeIndex >= 0) {
+            e.preventDefault();
+            input.value = items[activeIndex].dataset.value;
+            list.style.display = 'none';
+            return;
+        } else {
+            return;
+        }
+        items.forEach((it, i) => it.classList.toggle('active', i === activeIndex));
     });
 }

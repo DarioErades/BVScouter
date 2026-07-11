@@ -1496,15 +1496,21 @@ function refreshTimelineAndStats() {
         });
     });
 
-    timelineItems.querySelectorAll('.btn-fav-action').forEach(btn => {
+    timelineItems.querySelectorAll('.btn-fav-rally').forEach(btn => {
         btn.addEventListener('click', async () => {
-            const id = parseInt(btn.dataset.actionId, 10);
-            const action = scoutingState.acciones.find(a => a.id === id);
-            if (!action) return;
-            action.es_favorito = action.es_favorito ? 0 : 1;
-            await window.api.updateAccion(id, { es_favorito: action.es_favorito });
-            btn.textContent = action.es_favorito ? '⭐' : '☆';
-            showToast(action.es_favorito ? 'Añadido a favoritos' : 'Eliminado de favoritos', 'info');
+            const idsStr = btn.dataset.rallyIds;
+            if (!idsStr) return;
+            const ids = idsStr.split(',').map(n => parseInt(n, 10));
+            const acciones = scoutingState.acciones.filter(a => ids.includes(a.id));
+            if (acciones.length === 0) return;
+            // el punto pasa a favorito si actualmente NO lo está por completo
+            const nuevoValor = acciones.every(a => a.es_favorito) ? 0 : 1;
+            for (const a of acciones) {
+                a.es_favorito = nuevoValor;
+                await window.api.updateAccion(a.id, { es_favorito: nuevoValor });
+            }
+            showToast(nuevoValor ? 'Punto añadido a favoritos ★' : 'Punto quitado de favoritos', nuevoValor ? 'success' : 'info');
+            refreshTimelineAndStats();
         });
     });
 
@@ -1613,9 +1619,16 @@ function renderTimeline() {
     }
 
     return rallies.reverse().map(rally => {
+        const rallyIds = rally.acciones.map(a => a.id).join(',');
+        const isFav = rally.acciones.length > 0 && rally.acciones.every(a => a.es_favorito);
         const header = `<div class="rally-header">
             <span>Marcador: ${rally.marcador_local} - ${rally.marcador_rival}</span>
-            <button class="btn-delete-rally" data-rally-ids="${rally.acciones.map(a => a.id).join(',')}" title="Eliminar Punto (y todas sus acciones)">🗑️</button>
+            <div class="rally-header-actions">
+                <button class="btn-fav-rally ${isFav ? 'is-fav' : ''}" data-rally-ids="${rallyIds}" title="${isFav ? 'Quitar punto de favoritos' : 'Marcar punto como favorito'}">
+                    <span class="fav-star">${isFav ? '★' : '☆'}</span>
+                </button>
+                <button class="btn-delete-rally" data-rally-ids="${rallyIds}" title="Eliminar Punto (y todas sus acciones)">🗑️</button>
+            </div>
         </div>`;
 
         const items = rally.acciones.map(a => {
@@ -1636,7 +1649,6 @@ function renderTimeline() {
                     ${a.subtipo ? `· ${a.subtipo}` : ''}
                     ${RESULTADOS[resultado]?.icon || ''}
                     <div style="margin-left: auto; display: flex; gap: 4px;">
-                        <button class="btn-fav-action" data-action-id="${a.id}" title="Favorito">${a.es_favorito ? '⭐' : '☆'}</button>
                         <button class="btn-edit-action" data-action-id="${a.id}" title="Editar Acción">✏️</button>
                         <button class="btn-delete-action" data-action-id="${a.id}" title="Eliminar Acción">×</button>
                     </div>

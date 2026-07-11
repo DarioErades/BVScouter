@@ -35,13 +35,19 @@ function calcularStatsJugador(acciones, jugadorNombre) {
         const defensas = rally.filter(a => a.tipo_accion === 'defensa');
         const isFBSO = ataques.length <= 1 && defensas.length === 0;
 
+        // Las acciones 'rival' y 'error_general' son eventos de equipo (no de un jugador
+        // concreto); se guardan con el nombre de J1 como placeholder, así que NO deben
+        // usarse para atribuir el side-out a un jugador.
+        const esEventoEquipo = a => a.tipo_accion === 'rival' || a.tipo_accion === 'error_general' || a.tipo_accion === 'fin_set';
+
         const puntoRally = rally.some(a => a.resultado === 'punto');
         const recibioJugador = rally.some(a => a.tipo_accion === 'recepcion' && a.jugador_nombre === jugadorNombre);
         const atacoJugador = rally.some(a => a.tipo_accion === 'ataque' && a.jugador_nombre === jugadorNombre);
-        const hizoPunto = rally.some(a => a.resultado === 'punto' && a.jugador_nombre === jugadorNombre);
-        
+        const hizoPunto = rally.some(a => a.resultado === 'punto' && !esEventoEquipo(a) && a.jugador_nombre === jugadorNombre);
+
         // En voley playa, el side-out se atribuye a quien recibe.
-        // Si no hay recepcion registrada, se lo atribuimos a quien atacó o hizo el punto.
+        // Si no hay recepcion registrada, se lo atribuimos a quien atacó o hizo el punto
+        // con una acción real (nunca a partir de un error/acierto del rival).
         const hayRecepcionEnRally = rally.some(a => a.tipo_accion === 'recepcion');
         const participo = hayRecepcionEnRally ? recibioJugador : (atacoJugador || hizoPunto);
 

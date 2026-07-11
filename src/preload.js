@@ -8,6 +8,11 @@ contextBridge.exposeInMainWorld('api', {
   updatePartido: (id, data) => ipcRenderer.invoke('partidos:update', id, data),
   deletePartido: (id) => ipcRenderer.invoke('partidos:delete', id),
   movePartidoToCarpeta: (partidoId, carpetaId) => ipcRenderer.invoke('partidos:moveToCarpeta', partidoId, carpetaId),
+  // jugadores
+  getJugadores: () => ipcRenderer.invoke('jugadores:getAll'),
+  createJugador: (data) => ipcRenderer.invoke('jugadores:create', data),
+  updateJugador: (id, data) => ipcRenderer.invoke('jugadores:update', id, data),
+  deleteJugador: (id) => ipcRenderer.invoke('jugadores:delete', id),
   // carpetas
   getCarpetas: () => ipcRenderer.invoke('carpetas:getAll'),
   createCarpeta: (nombre) => ipcRenderer.invoke('carpetas:create', nombre),

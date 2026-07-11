@@ -15,12 +15,20 @@ import { registerDashboard } from './pages/dashboard.js';
 import { registerNuevoPartido } from './pages/nuevo-partido.js';
 import { registerScouting } from './pages/scouting.js';
 import { registerInforme } from './pages/informe.js';
+import { registerJugadores } from './pages/jugadores.js';
+import { registerAjustes } from './pages/ajustes.js';
+import { initTheme } from './utils/theme.js';
+
+// aplicamos el tema guardado antes de renderizar
+initTheme();
 
 // registramos todas las paginas
 registerDashboard();
 registerNuevoPartido();
 registerScouting();
 registerInforme();
+registerJugadores();
+registerAjustes();
 
 // navegacion del sidebar
 document.querySelectorAll('.nav-link').forEach(link => {

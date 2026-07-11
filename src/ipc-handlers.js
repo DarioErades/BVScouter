@@ -10,6 +10,38 @@ const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 
+// ---- JUGADORES ----
+
+ipcMain.handle('jugadores:getAll', () => {
+  const db = getDB();
+  return db.prepare('SELECT * FROM jugadores ORDER BY nombre, apellidos').all();
+});
+
+ipcMain.handle('jugadores:create', (_event, data) => {
+  const db = getDB();
+  const completo = { nombre: '', apellidos: '', nacionalidad: '', posicion: '', notas: '', ...data };
+  const stmt = db.prepare(`
+    INSERT INTO jugadores (nombre, apellidos, nacionalidad, posicion, notas)
+    VALUES (@nombre, @apellidos, @nacionalidad, @posicion, @notas)
+  `);
+  const result = stmt.run(completo);
+  return { id: result.lastInsertRowid, ...completo };
+});
+
+ipcMain.handle('jugadores:update', (_event, id, data) => {
+  const db = getDB();
+  const campos = Object.keys(data);
+  if (campos.length === 0) return true;
+  const sets = campos.map(c => `${c} = @${c}`).join(', ');
+  const stmt = db.prepare(`UPDATE jugadores SET ${sets} WHERE id = @id`);
+  return stmt.run({ ...data, id });
+});
+
+ipcMain.handle('jugadores:delete', (_event, id) => {
+  const db = getDB();
+  return db.prepare('DELETE FROM jugadores WHERE id = ?').run(id);
+});
+
 // ---- CARPETAS ----
 
 ipcMain.handle('carpetas:getAll', () => {
@@ -261,19 +293,34 @@ async function resolverVideoPath(partido) {
     }
 
     const ytdlp = fs.existsSync('/home/dario/.local/bin/yt-dlp') ? '/home/dario/.local/bin/yt-dlp' : 'yt-dlp';
-    try {
-      await execFileAsync(ytdlp, [
-        '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best',
-        '--merge-output-format', 'mp4',
-        '-o', outputPath,
-        partido.video_url
-      ], { timeout: 600000 });
-    } catch(e) {
-      console.error(e);
+
+    // las versiones recientes de yt-dlp requieren un runtime de JS y el
+    // solucionador remoto de retos para extraer vídeos de YouTube. Usamos node
+    // (instalado con la app) y el componente remoto 'ejs'. Se intenta primero la
+    // extracción completa y, si falla, se prueba el cliente 'android' como respaldo.
+    const nodePath = fs.existsSync('/usr/bin/node') ? '/usr/bin/node' : 'node';
+    const runtimeArgs = ['--js-runtimes', `node:${nodePath}`, '--remote-components', 'ejs:github'];
+    const intentos = [
+      [...runtimeArgs, '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best',
+        '--merge-output-format', 'mp4', '--no-playlist'],
+      [...runtimeArgs, '-f', 'best[ext=mp4]/best', '--no-playlist',
+        '--extractor-args', 'youtube:player_client=android']
+    ];
+
+    let ultimoError = '';
+    for (const args of intentos) {
+      try {
+        await execFileAsync(ytdlp, [...args, '-o', outputPath, partido.video_url], { timeout: 600000 });
+        if (fs.existsSync(outputPath)) break;
+      } catch(e) {
+        ultimoError = (e && (e.stderr || e.message)) ? String(e.stderr || e.message) : String(e);
+        console.error('yt-dlp falló:', ultimoError);
+      }
     }
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('No se pudo descargar el vídeo de YouTube.');
+      const detalle = ultimoError ? ` Detalle: ${ultimoError.split('\n').filter(Boolean).slice(-2).join(' ')}` : '';
+      throw new Error(`No se pudo descargar el vídeo de YouTube.${detalle}`);
     }
 
     ytCache.set(partido.video_url, outputPath);
@@ -341,7 +388,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
 
   let intervals = [];
 
-  if (filters.modo === 'puntos') {
+  if (filters.modo === 'puntos' || filters.modo === 'favoritos') {
     // Agrupar por set y marcador para formar puntos/rallies completos
     const grupos = {};
     acciones.forEach(a => {

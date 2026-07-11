@@ -122,7 +122,7 @@ function bindEvents(container) {
     document.querySelectorAll('.btn-breadcrumb').forEach(btn => {
         btn.addEventListener('click', () => {
             currentFolderId = null;
-            renderDashboard(container, jugadores);
+            renderDashboard(container);
         });
 
         // Eventos Drag and Drop para volver a la raiz (sacar de la carpeta)

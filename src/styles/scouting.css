@@ -946,3 +946,30 @@ input:checked + .toggle-slider:before {
     transform: translateX(16px);
     background-color: var(--accent-primary);
 }
+
+
+
+/* ===== Favorito por punto (rally) ===== */
+.rally-header-actions { display: flex; align-items: center; gap: 6px; }
+.btn-fav-rally {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    line-height: 1;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+.btn-fav-rally .fav-star { font-size: 18px; color: var(--text-muted); transition: color 0.15s ease; }
+.btn-fav-rally:hover { background: rgba(245, 158, 11, 0.12); }
+.btn-fav-rally:hover .fav-star { color: var(--accent-primary); }
+.btn-fav-rally.is-fav .fav-star {
+    color: #fbbf24;
+    text-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+}
+.btn-fav-rally.is-fav { animation: favPop 0.3s ease; }
+@keyframes favPop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.35); }
+    100% { transform: scale(1); }
+}

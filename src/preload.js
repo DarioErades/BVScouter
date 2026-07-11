@@ -28,4 +28,8 @@ contextBridge.exposeInMainWorld('api', {
   getStats: (partidoId) => ipcRenderer.invoke('stats:getByPartido', partidoId),
   generatePDF: (html, height) => ipcRenderer.invoke('pdf:generate', html, height),
   generateVideoHighlights: (partidoId, filters) => ipcRenderer.invoke('video:generateHighlights', partidoId, filters),
+  // copias de seguridad y exportacion
+  backupDatabase: () => ipcRenderer.invoke('db:backup'),
+  restoreDatabase: () => ipcRenderer.invoke('db:restore'),
+  exportAccionesCSV: (partidoId) => ipcRenderer.invoke('acciones:exportCSV', partidoId),
 });

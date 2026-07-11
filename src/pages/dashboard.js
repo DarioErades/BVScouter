@@ -6,6 +6,7 @@ import { formatDate } from '../utils/helpers.js';
 let currentFolderId = null;
 let allCarpetas = [];
 let allPartidos = [];
+let searchQuery = '';
 
 export function registerDashboard() {
     router.register('dashboard', async (container) => {
@@ -23,12 +24,20 @@ function renderDashboard(container) {
     const currentFolder = currentFolderId ? allCarpetas.find(c => c.id === currentFolderId) : null;
     
     // Filtramos partidos
-    const partidosToShow = currentFolderId 
+    let partidosToShow = currentFolderId 
         ? allPartidos.filter(p => p.carpeta_id === currentFolderId)
         : allPartidos.filter(p => !p.carpeta_id);
-        
+
+    // Busqueda: si hay texto, buscamos en TODOS los partidos (ignorando carpetas)
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        partidosToShow = allPartidos.filter(p =>
+            `${p.jugador1_nombre} ${p.jugador2_nombre} ${p.torneo || ''} ${p.fase || ''}`.toLowerCase().includes(q)
+        );
+    }
+
     // En la raiz mostramos todas las carpetas. Dentro de una carpeta, no mostramos subcarpetas (solo 1 nivel de momento)
-    const carpetasToShow = currentFolderId ? [] : allCarpetas;
+    const carpetasToShow = (currentFolderId || searchQuery) ? [] : allCarpetas;
 
     container.innerHTML = `
         <div class="dashboard-page">
@@ -43,7 +52,8 @@ function renderDashboard(container) {
                         <button class="btn btn-sm btn-secondary btn-breadcrumb" data-id="null">🏠 Raíz</button>
                         ${currentFolder ? `<span style="color: #64748b;">/</span> <span style="color: #38bdf8;">📂 ${currentFolder.nombre}</span>` : ''}
                     </div>
-                    <div class="explorer-actions flex gap-8">
+                    <div class="explorer-actions flex gap-8" style="display: flex; align-items: center; gap: 8px;">
+                        <input type="text" id="input-buscar-partido" class="form-input" placeholder="🔍 Buscar partido..." value="${searchQuery.replace(/"/g, '&quot;')}" style="width: 220px; background: #0f172a; border: 1px solid #334155; color: white; padding: 7px 12px; border-radius: 6px; font-size: 0.85rem;">
                         ${!currentFolderId ? `<button class="btn btn-sm btn-secondary" id="btn-nueva-carpeta">📁 Nueva Carpeta</button>` : ''}
                         <button class="btn btn-primary btn-sm" id="btn-nuevo-partido-dash">✚ Nuevo Partido</button>
                     </div>
@@ -79,6 +89,7 @@ function renderDashboard(container) {
                                     <div>
                                         <div class="font-semibold text-white" style="font-size: 1rem; margin-bottom: 4px;">
                                             ${p.jugador1_nombre} / ${p.jugador2_nombre}
+                                            ${p.finalizado ? `<span style="margin-left: 8px; font-size: 0.7rem; padding: 3px 8px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 999px; vertical-align: middle;">✅ FINALIZADO</span>` : `<span style="margin-left: 8px; font-size: 0.7rem; padding: 3px 8px; background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 999px; vertical-align: middle;">⏳ EN CURSO</span>`}
                                         </div>
                                         <div style="font-size: 0.85rem; color: #94a3b8;">
                                             📅 ${formatDate(p.fecha)} ${p.torneo ? `| 🏆 ${p.torneo}` : ''} ${p.fase ? `| 🏷️ ${p.fase}` : ''}
@@ -92,6 +103,8 @@ function renderDashboard(container) {
                                     <div class="flex gap-8" style="display: flex; gap: 8px;">
                                         <button class="btn btn-sm btn-secondary btn-scouting" data-id="${p.id}">📋 Scouting</button>
                                         <button class="btn btn-sm btn-secondary btn-informe" data-id="${p.id}">📊 Informe</button>
+                                        <button class="btn btn-sm btn-secondary btn-toggle-finalizado" data-id="${p.id}" data-finalizado="${p.finalizado ? 1 : 0}" title="${p.finalizado ? 'Reabrir partido' : 'Marcar como finalizado'}" style="padding: 0 8px; ${p.finalizado ? 'color: #f59e0b; border-color: rgba(245, 158, 11, 0.3);' : 'color: #10b981; border-color: rgba(16, 185, 129, 0.3);'}">${p.finalizado ? '🔓' : '🏁'}</button>
+                                        <button class="btn btn-sm btn-secondary btn-export-csv" data-id="${p.id}" title="Exportar acciones a CSV" style="padding: 0 8px;">📤</button>
                                         <button class="btn btn-sm btn-secondary btn-eliminar-partido" data-id="${p.id}" title="Eliminar Partido" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); padding: 0 8px;">🗑️</button>
                                     </div>
                                 </div>
@@ -272,6 +285,42 @@ function bindEvents(container) {
     document.querySelectorAll('.btn-informe').forEach(btn => {
         btn.addEventListener('click', () => {
             router.navigate('informe', { partidoId: parseInt(btn.dataset.id) });
+        });
+    });
+
+    // Buscador de partidos
+    const inputBuscar = document.getElementById('input-buscar-partido');
+    inputBuscar?.addEventListener('input', (e) => {
+        searchQuery = e.target.value.trim();
+        renderDashboard(container);
+        const inp = document.getElementById('input-buscar-partido');
+        if (inp) {
+            inp.focus();
+            inp.setSelectionRange(inp.value.length, inp.value.length);
+        }
+    });
+
+    // Marcar/desmarcar partido como finalizado
+    document.querySelectorAll('.btn-toggle-finalizado').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = parseInt(btn.dataset.id);
+            const nuevoEstado = btn.dataset.finalizado === '1' ? 0 : 1;
+            await window.api.updatePartido(id, { finalizado: nuevoEstado });
+            allPartidos = await window.api.getPartidos();
+            renderDashboard(container);
+            showToast(nuevoEstado ? 'Partido marcado como finalizado' : 'Partido reabierto', 'success');
+        });
+    });
+
+    // Exportar acciones a CSV
+    document.querySelectorAll('.btn-export-csv').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            try {
+                const path = await window.api.exportAccionesCSV(parseInt(btn.dataset.id));
+                if (path) showToast('Acciones exportadas a CSV', 'success');
+            } catch (err) {
+                showToast(err.message || 'Error al exportar CSV', 'error');
+            }
         });
     });
 

@@ -73,6 +73,24 @@ function renderPage(container) {
                 </div>
             </div>
 
+            <div class="card settings-card">
+                <h3 class="settings-section-title">💾 Copias de seguridad</h3>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label">Exportar copia de seguridad</div>
+                        <div class="setting-hint">Guarda todos tus partidos y acciones en un archivo .db</div>
+                    </div>
+                    <button class="btn btn-primary" id="btn-backup-db">📤 Exportar</button>
+                </div>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label">Restaurar copia de seguridad</div>
+                        <div class="setting-hint">Sustituye los datos actuales por una copia anterior (la app se reiniciará)</div>
+                    </div>
+                    <button class="btn btn-secondary" id="btn-restore-db" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">📥 Restaurar</button>
+                </div>
+            </div>
+
             <div class="flex gap-12" style="margin-top: 8px;">
                 <button class="btn btn-secondary" id="btn-reset-ajustes">↺ Restablecer valores</button>
             </div>
@@ -110,6 +128,24 @@ function bindEvents(container) {
     customInput?.addEventListener('input', (e) => {
         savePrefs({ accent: e.target.value });
         container.querySelectorAll('.accent-swatch').forEach(b => b.classList.remove('active'));
+    });
+
+    container.querySelector('#btn-backup-db')?.addEventListener('click', async () => {
+        try {
+            const path = await window.api.backupDatabase();
+            if (path) showToast('Copia de seguridad guardada', 'success');
+        } catch (err) {
+            showToast(err.message || 'Error al crear la copia', 'error');
+        }
+    });
+
+    container.querySelector('#btn-restore-db')?.addEventListener('click', async () => {
+        if (!confirm('⚠️ Restaurar una copia SUSTITUIRÁ todos los datos actuales y la app se reiniciará.\n\n¿Continuar?')) return;
+        try {
+            await window.api.restoreDatabase();
+        } catch (err) {
+            showToast(err.message || 'Error al restaurar la copia', 'error');
+        }
     });
 
     container.querySelector('#btn-reset-ajustes')?.addEventListener('click', () => {

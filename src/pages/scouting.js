@@ -290,6 +290,14 @@ function renderScoutingUI(container) {
                     </div>
                     <div style="display: flex; gap: 12px;">
                         <div style="flex: 1;">
+                            <label class="form-label">Set</label>
+                            <select id="vid-set" class="form-input">
+                                <option value="">Todos los sets</option>
+                                <option value="1">Primer set</option>
+                                <option value="2">Segundo set</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1;">
                             <label class="form-label">Margen Antes (s)</label>
                             <input type="number" id="vid-margin-pre" class="form-input" value="3" min="0" max="10">
                         </div>
@@ -298,6 +306,10 @@ function renderScoutingUI(container) {
                             <input type="number" id="vid-margin-post" class="form-input" value="1" min="0" max="10">
                         </div>
                     </div>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #e2e8f0; font-size: 0.9rem; padding: 8px 0;">
+                        <input type="checkbox" id="vid-mostrar-acciones" style="width: 16px; height: 16px; accent-color: #38bdf8;">
+                        🃏 Mostrar tarjeta con las acciones de cada punto en el vídeo
+                    </label>
                     <button id="btn-generar-videos-run" class="btn btn-primary mt-16" style="width: 100%;">✂️ Generar Vídeo (Combina la jugada)</button>
                 </div>
             </div>
@@ -496,6 +508,8 @@ function setupEditActionEvents() {
         const res = document.getElementById('vid-resultado').value;
         const mPre = document.getElementById('vid-margin-pre').value;
         const mPost = document.getElementById('vid-margin-post').value;
+        const setNum = document.getElementById('vid-set')?.value;
+        const mostrarAcciones = document.getElementById('vid-mostrar-acciones')?.checked;
         
         if (modo !== 'puntos' && modo !== 'favoritos') {
             if (jug) filters.jugador_nombre = jug;
@@ -504,6 +518,8 @@ function setupEditActionEvents() {
             if (res) filters.resultado = res;
         }
         
+        if (setNum) filters.set_numero = parseInt(setNum, 10);
+        if (mostrarAcciones) filters.mostrar_acciones = true;
         filters.pre_margin = mPre ? parseFloat(mPre) : 3;
         filters.post_margin = mPost ? parseFloat(mPost) : 1;
 

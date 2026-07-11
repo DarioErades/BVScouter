@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
+import { ipcMain, dialog, BrowserWindow, shell, app } from 'electron';
 import { getDB } from './database.js';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -351,8 +351,14 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
 
   if (canceled || !filePath) return null;
 
-  let query = 'SELECT video_timestamp, marcador_local, marcador_rival, set_numero, complejo, tipo_accion FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
+  let query = 'SELECT video_timestamp, marcador_local, marcador_rival, set_numero, complejo, tipo_accion, subtipo, resultado, jugador_nombre FROM acciones WHERE partido_id = ? AND video_timestamp > 0';
   const params = [partidoId];
+
+  // filtro por set (aplica a todos los modos)
+  if (filters.set_numero) {
+    query += ' AND set_numero = ?';
+    params.push(parseInt(filters.set_numero, 10));
+  }
 
   if (filters.modo === 'favoritos') {
     query += ' AND es_favorito = 1';
@@ -415,7 +421,8 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
       return {
         start: Math.max(0, (primera.video_timestamp - actualPreMargin)),
         end: (ultima.video_timestamp + postMargin),
-        score: `${primera.marcador_local || 0} - ${primera.marcador_rival || 0}`
+        score: `${primera.marcador_local || 0} - ${primera.marcador_rival || 0}`,
+        acciones: g.acciones
       };
     });
   } else {
@@ -427,18 +434,21 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
         grupos[key] = {
           minTime: a.video_timestamp,
           maxTime: a.video_timestamp,
-          score: `${a.marcador_local || 0} - ${a.marcador_rival || 0}`
+          score: `${a.marcador_local || 0} - ${a.marcador_rival || 0}`,
+          acciones: [a]
         };
       } else {
         grupos[key].minTime = Math.min(grupos[key].minTime, a.video_timestamp);
         grupos[key].maxTime = Math.max(grupos[key].maxTime, a.video_timestamp);
+        grupos[key].acciones.push(a);
       }
     });
 
     intervals = Object.values(grupos).map(g => ({
       start: Math.max(0, g.minTime - preMargin),
       end: g.maxTime + postMargin,
-      score: g.score
+      score: g.score,
+      acciones: g.acciones
     }));
   }
   
@@ -450,6 +460,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
           const curr = intervals[i];
           if (curr.start <= last.end) {
               last.end = Math.max(last.end, curr.end);
+              last.acciones = (last.acciones || []).concat(curr.acciones || []);
           } else {
               merged.push(curr);
           }
@@ -474,10 +485,42 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   let filterGraph = '';
   let concatInputs = '';
 
+  // etiquetas cortas para la tarjeta de acciones
+  const RESULT_ICONS = { punto: '● PUNTO', error: '✕ ERROR', bloqueado: '✕ BLOQUEADO', continuidad: '→', neutra: '·' };
+  const buildActionLines = (accs) => {
+      const orden = [...(accs || [])].sort((a, b) => a.video_timestamp - b.video_timestamp);
+      return orden
+        .filter(a => a.tipo_accion !== 'fin_set')
+        .slice(0, 8)
+        .map(a => {
+            const tipo = (a.tipo_accion || '').charAt(0).toUpperCase() + (a.tipo_accion || '').slice(1);
+            const sub = a.subtipo ? ` ${a.subtipo}` : '';
+            const res = RESULT_ICONS[a.resultado] || (a.resultado || '');
+            const jugador = a.jugador_nombre ? `${a.jugador_nombre} · ` : '';
+            return ` ${jugador}${tipo}${sub}  ${res} `;
+        });
+  };
+
+  const mostrarAcciones = !!filters.mostrar_acciones;
+  const textFiles = [];
+  const sessionId = Date.now();
+
   intervals.forEach((interval, i) => {
       // marcador bonito arriba a la derecha
       const text = ` ${interval.score} `;
-      filterGraph += `[0:v]trim=start=${interval.start.toFixed(2)}:end=${interval.end.toFixed(2)},setpts=PTS-STARTPTS,drawtext=text='${text}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=15:x=w-tw-30:y=30[v${i}];\n`;
+      let extraDraw = '';
+
+      if (mostrarAcciones) {
+          const lines = buildActionLines(interval.acciones);
+          if (lines.length > 0) {
+              const txtPath = path.join(os.tmpdir(), `bvscouter_card_${sessionId}_${i}.txt`);
+              fs.writeFileSync(txtPath, lines.join('\n'));
+              textFiles.push(txtPath);
+              extraDraw = `,drawtext=textfile=${txtPath}:expansion=none:fontcolor=white:fontsize=26:line_spacing=10:box=1:boxcolor=black@0.65:boxborderw=14:x=30:y=h-th-40`;
+          }
+      }
+
+      filterGraph += `[0:v]trim=start=${interval.start.toFixed(2)}:end=${interval.end.toFixed(2)},setpts=PTS-STARTPTS,drawtext=text='${text}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=15:x=w-tw-30:y=30${extraDraw}[v${i}];\n`;
       
       if (hasAudio) {
           filterGraph += `[0:a]atrim=start=${interval.start.toFixed(2)}:end=${interval.end.toFixed(2)},asetpts=PTS-STARTPTS[a${i}];\n`;
@@ -512,6 +555,9 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
       if (fs.existsSync(filterFilePath)) {
           fs.unlinkSync(filterFilePath);
       }
+      textFiles.forEach(f => {
+          try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (e) {}
+      });
   }
 });
 
@@ -553,3 +599,73 @@ ipcMain.handle('pdf:generate', async (_event, html, contentHeight) => {
   return filePath;
 });
 
+
+
+// ---- COPIAS DE SEGURIDAD ----
+
+ipcMain.handle('db:backup', async () => {
+  const db = getDB();
+  const fecha = new Date().toISOString().slice(0, 10);
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Guardar copia de seguridad',
+    defaultPath: `bvscouter_backup_${fecha}.db`,
+    filters: [{ name: 'Base de datos BVScouter', extensions: ['db'] }]
+  });
+  if (canceled || !filePath) return null;
+  await db.backup(filePath);
+  return filePath;
+});
+
+ipcMain.handle('db:restore', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Seleccionar copia de seguridad',
+    filters: [{ name: 'Base de datos BVScouter', extensions: ['db'] }],
+    properties: ['openFile']
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const backupPath = result.filePaths[0];
+  const db = getDB();
+  const dbPath = db.name;
+
+  // cerramos la BD actual, copiamos el backup encima y reiniciamos la app
+  db.close();
+  fs.copyFileSync(backupPath, dbPath);
+  // limpiamos los ficheros WAL/SHM antiguos para evitar inconsistencias
+  try { if (fs.existsSync(dbPath + '-wal')) fs.unlinkSync(dbPath + '-wal'); } catch (e) {}
+  try { if (fs.existsSync(dbPath + '-shm')) fs.unlinkSync(dbPath + '-shm'); } catch (e) {}
+
+  app.relaunch();
+  app.exit(0);
+  return true;
+});
+
+// ---- EXPORTAR ACCIONES A CSV ----
+
+ipcMain.handle('acciones:exportCSV', async (_event, partidoId) => {
+  const db = getDB();
+  const partido = db.prepare('SELECT * FROM partidos WHERE id = ?').get(partidoId);
+  if (!partido) throw new Error('Partido no encontrado.');
+
+  const acciones = db.prepare('SELECT * FROM acciones WHERE partido_id = ? ORDER BY id').all(partidoId);
+  if (acciones.length === 0) throw new Error('El partido no tiene acciones registradas.');
+
+  const nombre = `${partido.jugador1_nombre}_${partido.jugador2_nombre}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Exportar acciones a CSV',
+    defaultPath: `acciones_${nombre}_${partido.fecha || partidoId}.csv`,
+    filters: [{ name: 'CSV', extensions: ['csv'] }]
+  });
+  if (canceled || !filePath) return null;
+
+  const cols = ['id', 'set_numero', 'marcador_local', 'marcador_rival', 'jugador_nombre', 'complejo', 'tipo_accion', 'subtipo', 'resultado', 'video_timestamp', 'es_favorito', 'created_at'];
+  const escape = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [cols.join(';')];
+  acciones.forEach(a => lines.push(cols.map(c => escape(a[c])).join(';')));
+
+  fs.writeFileSync(filePath, '\ufeff' + lines.join('\n'), 'utf8');
+  return filePath;
+});

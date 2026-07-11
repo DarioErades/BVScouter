@@ -422,6 +422,14 @@ export function registerInforme() {
                                     <option value="bloqueado">Bloqueado</option>
                                 </select>
                             </div>
+                            <div style="flex: 1; min-width: 150px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Set</label>
+                                <select id="hl-set" class="form-input">
+                                    <option value="">Todos los sets</option>
+                                    <option value="1">Primer set</option>
+                                    <option value="2">Segundo set</option>
+                                </select>
+                            </div>
                             <div style="flex: 1; min-width: 100px;">
                                 <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">M. Antes (s)</label>
                                 <input type="number" id="hl-margin-pre" class="form-input" value="3" min="0" max="10">
@@ -429,6 +437,12 @@ export function registerInforme() {
                             <div style="flex: 1; min-width: 100px;">
                                 <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">M. Después (s)</label>
                                 <input type="number" id="hl-margin-post" class="form-input" value="1" min="0" max="10">
+                            </div>
+                            <div style="flex: 2; min-width: 280px; display: flex; align-items: flex-end;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #e2e8f0; font-size: 13px; padding-bottom: 8px;">
+                                    <input type="checkbox" id="hl-mostrar-acciones" style="width: 16px; height: 16px; accent-color: #38bdf8;">
+                                    🃏 Mostrar tarjeta con las acciones de cada punto
+                                </label>
                             </div>
                             <div style="display: flex; align-items: flex-end; padding-top: 10px;">
                                 <button id="btn-generar-highlights" class="btn btn-primary" style="width: 100%;">✂️ Generar Vídeo</button>
@@ -485,10 +499,15 @@ export function registerInforme() {
                     const mPre = document.getElementById('hl-margin-pre').value;
                     const mPost = document.getElementById('hl-margin-post').value;
                     
+                    const setNum = document.getElementById('hl-set')?.value;
+                    const mostrarAcciones = document.getElementById('hl-mostrar-acciones')?.checked;
+
                     if (jug) filters.jugador_nombre = jug;
                     if (comp) filters.complejo = comp;
                     if (acc) filters.tipo_accion = acc;
                     if (res) filters.resultado = res;
+                    if (setNum) filters.set_numero = parseInt(setNum, 10);
+                    if (mostrarAcciones) filters.mostrar_acciones = true;
                     filters.pre_margin = mPre ? parseFloat(mPre) : 3;
                     filters.post_margin = mPost ? parseFloat(mPost) : 1;
 

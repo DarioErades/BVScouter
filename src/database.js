@@ -84,6 +84,9 @@ export function initDatabase() {
   // Migracion: eliminar columnas legacy jugador*_id (NOT NULL) que rompen los INSERT nuevos
   migrarEsquemaSinIds(db);
 
+  // Migracion: partidos finalizados
+  try { db.exec(`ALTER TABLE partidos ADD COLUMN finalizado INTEGER DEFAULT 0`); } catch (e) {}
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_acciones_partido ON acciones(partido_id);
     CREATE INDEX IF NOT EXISTS idx_acciones_jugador ON acciones(jugador_nombre);

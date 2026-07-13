@@ -886,7 +886,7 @@ function setupKeyboardShortcuts(container) {
                         set_numero: scoutingState.setActual,
                         marcador_local: scoutingState.marcadorLocal.toString(),
                         marcador_rival: scoutingState.marcadorRival.toString(),
-                        video_timestamp: window.getCurrentVideoTime ? window.getCurrentVideoTime() : 0,
+                        video_timestamp: getVideoTimestamp(),
                         zona_campo: ''
                     };
                     
@@ -925,7 +925,7 @@ function setupKeyboardShortcuts(container) {
                         set_numero: scoutingState.setActual,
                         marcador_local: scoutingState.marcadorLocal.toString(),
                         marcador_rival: scoutingState.marcadorRival.toString(),
-                        video_timestamp: window.getCurrentVideoTime ? window.getCurrentVideoTime() : 0,
+                        video_timestamp: getVideoTimestamp(),
                         zona_campo: ''
                     };
                     
@@ -956,7 +956,7 @@ function setupKeyboardShortcuts(container) {
                             set_numero: scoutingState.setActual,
                             marcador_local: scoutingState.marcadorLocal.toString(),
                             marcador_rival: scoutingState.marcadorRival.toString(),
-                            video_timestamp: window.getCurrentVideoTime ? window.getCurrentVideoTime() : 0,
+                            video_timestamp: getVideoTimestamp(),
                             zona_campo: ''
                         };
                         
@@ -1021,9 +1021,18 @@ function setupKeyboardShortcuts(container) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
         if (router.getCurrentPage() !== 'scouting') return;
         
-        if (e.key === 'Escape' && scoutingState.wizardModalAbierto) {
-            closeWizardModal();
-            return;
+        if (e.key === 'Escape') {
+            if (scoutingState.wizardModalAbierto) {
+                closeWizardModal();
+                return;
+            } else if (scoutingState.tipoAccion) {
+                scoutingState.tipoAccion = null;
+                scoutingState.subtipo = null;
+                document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('selected'));
+                document.getElementById('subtipo-container').style.display = 'none';
+                updateCurrentActionText();
+                return;
+            }
         }
 
         if (scoutingState.wizardModalAbierto) {

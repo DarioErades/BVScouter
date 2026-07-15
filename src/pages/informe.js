@@ -3,6 +3,7 @@
 import { router } from '../router.js';
 import { showToast, formatDate, getChartColors, getChartColorsAlpha } from '../utils/helpers.js';
 import { calcularStats, detectarPatrones } from '../utils/stats-calculator.js';
+import { generateCustomPdfHtml } from '../utils/pdf-generator.js';
 
 // guardamos refs a los charts para destruirlos al salir
 let chartInstances = [];
@@ -200,7 +201,7 @@ export function registerInforme() {
                                 </div>
                             </div>
                             
-                            <div class="tab-golpes-content" id="golpes-k1" style="display: none;" data-label="Top Golpes - K1">
+                            <div class="tab-golpes-content tab-hidden-initially" id="golpes-k1" data-label="Top Golpes - K1">
                                 <div class="report-grid">
                                     <div style="flex: 1; text-align: center; min-width: 250px;">
                                         <div class="chart-title">${partido.jugador1_nombre}</div>
@@ -213,7 +214,7 @@ export function registerInforme() {
                                 </div>
                             </div>
 
-                            <div class="tab-golpes-content" id="golpes-k2" style="display: none;" data-label="Top Golpes - K2">
+                            <div class="tab-golpes-content tab-hidden-initially" id="golpes-k2" data-label="Top Golpes - K2">
                                 <div class="report-grid">
                                     <div style="flex: 1; text-align: center; min-width: 250px;">
                                         <div class="chart-title">${partido.jugador1_nombre}</div>
@@ -258,13 +259,13 @@ export function registerInforme() {
                                 <div class="chart-title">${j2Nombre}</div>
                                 <div class="chart-wrapper"><canvas id="chart-ataques-general-j2"></canvas></div>
                             </div>
-                            <div class="tab-ataque-content" id="ataque-k1" style="display: none;" data-label="Distribución Ataques - K1">
+                            <div class="tab-ataque-content tab-hidden-initially" id="ataque-k1" data-label="Distribución Ataques - K1">
                                 <div class="chart-title">${j1Nombre}</div>
                                 <div class="chart-wrapper" style="margin-bottom: 20px;"><canvas id="chart-ataques-k1-j1"></canvas></div>
                                 <div class="chart-title">${j2Nombre}</div>
                                 <div class="chart-wrapper"><canvas id="chart-ataques-k1-j2"></canvas></div>
                             </div>
-                            <div class="tab-ataque-content" id="ataque-k2" style="display: none;" data-label="Distribución Ataques - K2">
+                            <div class="tab-ataque-content tab-hidden-initially" id="ataque-k2" data-label="Distribución Ataques - K2">
                                 <div class="chart-title">${j1Nombre}</div>
                                 <div class="chart-wrapper" style="margin-bottom: 20px;"><canvas id="chart-ataques-k2-j1"></canvas></div>
                                 <div class="chart-title">${j2Nombre}</div>
@@ -302,10 +303,10 @@ export function registerInforme() {
                             <div class="chart-wrapper tab-saque-content" id="saque-j1" data-label="${j1Nombre}">
                                 <canvas id="chart-saques-j1"></canvas>
                             </div>
-                            <div class="chart-wrapper tab-saque-content" id="saque-j2" style="display: none;" data-label="${j2Nombre}">
+                            <div class="chart-wrapper tab-saque-content tab-hidden-initially" id="saque-j2" data-label="${j2Nombre}">
                                 <canvas id="chart-saques-j2"></canvas>
                             </div>
-                            <div class="chart-wrapper tab-saque-content" id="saque-ambos" style="display: none;" data-label="Ambos Jugadores">
+                            <div class="chart-wrapper tab-saque-content tab-hidden-initially" id="saque-ambos" data-label="Ambos Jugadores">
                                 <canvas id="chart-saques-ambos"></canvas>
                             </div>
                         </div>
@@ -438,13 +439,26 @@ export function registerInforme() {
                                 <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">M. Después (s)</label>
                                 <input type="number" id="hl-margin-post" class="form-input" value="1" min="0" max="10">
                             </div>
-                            <div style="flex: 2; min-width: 280px; display: flex; align-items: flex-end;">
-                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #e2e8f0; font-size: 13px; padding-bottom: 8px;">
+                            <div style="flex: 2; min-width: 280px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #e2e8f0; font-size: 13px;">
                                     <input type="checkbox" id="hl-mostrar-acciones" style="width: 16px; height: 16px; accent-color: #38bdf8;">
                                     🃏 Mostrar tarjeta con las acciones de cada punto
                                 </label>
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #e2e8f0; font-size: 13px; padding-bottom: 4px;">
+                                    <input type="checkbox" id="hl-con-marcador" checked style="width: 16px; height: 16px; accent-color: #38bdf8;">
+                                    💯 Incluir marcador en el vídeo
+                                </label>
                             </div>
-                            <div style="display: flex; align-items: flex-end; padding-top: 10px;">
+                            <div style="flex: 3; display: flex; flex-direction: column; justify-content: flex-end; padding-top: 10px; min-width: 250px;">
+                                <div id="hl-progress-container" style="display: none; margin-bottom: 8px;">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                        <label class="form-label" style="margin: 0; font-size: 12px;">Exportando vídeo...</label>
+                                        <span id="hl-progress-text" style="color: white; font-size: 12px;">0%</span>
+                                    </div>
+                                    <div style="width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
+                                        <div id="hl-progress-bar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.2s;"></div>
+                                    </div>
+                                </div>
                                 <button id="btn-generar-highlights" class="btn btn-primary" style="width: 100%;">✂️ Generar Vídeo</button>
                             </div>
                         </div>
@@ -477,7 +491,17 @@ export function registerInforme() {
                 showToast('Notas guardadas', 'success');
             });
 
-            document.getElementById('btn-exportar-pdf').addEventListener('click', () => exportarPDF(container));
+            document.getElementById('btn-exportar-pdf').addEventListener('click', async () => {
+                showToast('Generando PDF rediseñado...', 'info');
+                const reportHTML = generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accionesFiltradas);
+                try {
+                    const result = await window.api.generatePDF(reportHTML, 2500);
+                    if (result) showToast('PDF guardado correctamente', 'success');
+                } catch (err) {
+                    showToast('Error al generar PDF', 'error');
+                    console.error(err);
+                }
+            });
 
             document.getElementById('btn-volver-scouting').addEventListener('click', () => {
                 router.navigate('scouting', { partidoId: params.partidoId });
@@ -490,6 +514,18 @@ export function registerInforme() {
             // evento generar highlights
             const btnHighlights = document.getElementById('btn-generar-highlights');
             if (btnHighlights) {
+                // IPC Progress listener
+                if (window.api && window.api.onVideoProgress) {
+                    window.api.onVideoProgress((pct) => {
+                        const bar = document.getElementById('hl-progress-bar');
+                        const txt = document.getElementById('hl-progress-text');
+                        if (bar && txt) {
+                            bar.style.width = pct + '%';
+                            txt.textContent = pct + '%';
+                        }
+                    });
+                }
+
                 btnHighlights.addEventListener('click', async () => {
                     const filters = {};
                     const jug = document.getElementById('hl-jugador').value;
@@ -501,6 +537,7 @@ export function registerInforme() {
                     
                     const setNum = document.getElementById('hl-set')?.value;
                     const mostrarAcciones = document.getElementById('hl-mostrar-acciones')?.checked;
+                    const conMarcador = document.getElementById('hl-con-marcador')?.checked !== false; // por defecto true
 
                     if (jug) filters.jugador_nombre = jug;
                     if (comp) filters.complejo = comp;
@@ -508,11 +545,20 @@ export function registerInforme() {
                     if (res) filters.resultado = res;
                     if (setNum) filters.set_numero = parseInt(setNum, 10);
                     if (mostrarAcciones) filters.mostrar_acciones = true;
+                    filters.con_marcador = conMarcador;
                     filters.pre_margin = mPre ? parseFloat(mPre) : 3;
                     filters.post_margin = mPost ? parseFloat(mPost) : 1;
 
                     btnHighlights.disabled = true;
                     btnHighlights.textContent = '⏳ Generando (puede tardar)...';
+                    
+                    const progContainer = document.getElementById('hl-progress-container');
+                    const progBar = document.getElementById('hl-progress-bar');
+                    const progText = document.getElementById('hl-progress-text');
+                    if (progContainer) progContainer.style.display = 'block';
+                    if (progBar) progBar.style.width = '0%';
+                    if (progText) progText.textContent = '0%';
+
                     try {
                         const path = await window.api.generateVideoHighlights(params.partidoId, filters);
                         if (path) {
@@ -523,6 +569,7 @@ export function registerInforme() {
                     } finally {
                         btnHighlights.disabled = false;
                         btnHighlights.textContent = '✂️ Generar Vídeo';
+                        if (progContainer) progContainer.style.display = 'none';
                     }
                 });
             }
@@ -889,6 +936,13 @@ function renderCharts(stats, j1Nombre, j2Nombre) {
             options: optionsSaques
         }));
     }
+
+    // Ocultar las pestañas inactivas reales después de crearlas off-screen
+    const hiddens = document.querySelectorAll('.tab-hidden-initially');
+    hiddens.forEach(el => {
+        el.classList.remove('tab-hidden-initially');
+        el.style.display = 'none';
+    });
 }
 
 function renderHeatmap(distribucion) {
@@ -1061,117 +1115,5 @@ function getChartOptions(yLabel, maxY = null) {
     return options;
 }
 
-async function exportarPDF(container) {
-    showToast('Preparando PDF...', 'info');
+// Función exportarPDF eliminada, se usa pdf-generator.js
 
-    // convertir los canvas a imagenes para el PDF
-    const canvases = container.querySelectorAll('canvas');
-    const placeholders = [];
-
-    canvases.forEach(c => {
-        const img = document.createElement('img');
-        img.src = c.toDataURL('image/png');
-        img.className = 'pdf-chart-img';
-        img.style.width = '100%';
-        img.style.maxWidth = '500px';
-        img.style.margin = '0 auto';
-        img.style.display = 'block';
-        c.parentNode.insertBefore(img, c);
-        c.style.display = 'none';
-        placeholders.push({ img, canvas: c });
-    });
-
-    const bodyHtml = container.querySelector('.report-container')?.innerHTML || '';
-
-    // restaurar los canvas
-    placeholders.forEach(p => {
-        p.img.remove();
-        p.canvas.style.display = '';
-    });
-
-    // cogemos el HTML del informe con estilos para el PDF
-    const reportHTML = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Informe BVScouter</title>
-            <style>
-                @page { margin: 0; }
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { font-family: 'Segoe UI', Arial, sans-serif; background: #0a0e17; color: #f1f5f9; padding: 0; width: 100%; margin: 0; }
-                h1 { font-size: 26px; text-align: center; margin-bottom: 8px; color: #f1f5f9; padding-top: 20px; }
-                h2.report-section-title { font-size: 18px; color: #f59e0b; margin: 20px 20px 10px; border-bottom: 2px solid rgba(245,158,11,0.3); padding-bottom: 8px; }
-                .report-meta { text-align: center; color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
-                .report-section { page-break-inside: avoid; break-inside: avoid; margin-bottom: 20px; padding: 0 20px; }
-                .report-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
-                .report-stat-card { flex: 1; min-width: 200px; background: #1a2332; border: 1px solid #1e293b; border-radius: 12px; padding: 15px; text-align: center; break-inside: avoid; page-break-inside: avoid; }
-                .report-stat-value { font-size: 32px; font-weight: 800; margin-bottom: 4px; }
-                .report-stat-value.good { color: #10b981; }
-                .report-stat-value.average { color: #f59e0b; }
-                .report-stat-value.bad { color: #ef4444; }
-                .report-stat-label { font-size: 14px; color: #e2e8f0; font-weight: 600; margin-bottom: 4px; }
-                .report-stat-sublabel { font-size: 12px; color: #94a3b8; }
-                .chart-container { background: #1a2332; border: 1px solid #1e293b; border-radius: 12px; padding: 15px; margin-bottom: 15px; page-break-inside: avoid; break-inside: avoid; }
-                .chart-title { font-size: 14px; color: #94a3b8; text-align: center; margin-bottom: 10px; font-weight: 600; }
-                .chart-wrapper { text-align: center; break-inside: avoid; page-break-inside: avoid; }
-                .pdf-chart-img { max-width: 100%; height: auto; }
-                .patterns-list { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-                .pattern-item { background: #111827; border: 1px solid rgba(245, 158, 11, 0.2); border-left: 4px solid #f59e0b; padding: 10px; border-radius: 8px; display: flex; align-items: center; gap: 10px; break-inside: avoid; page-break-inside: avoid; }
-                .pattern-icon { font-size: 20px; }
-                .pattern-text { font-size: 14px; color: #e2e8f0; }
-                
-                /* Ocultar elementos interactivos que no tienen sentido en PDF */
-                button, .btn, select, label { display: none !important; }
-                .report-conclusions textarea { display: none !important; }
-                .report-conclusions p { display: none !important; }
-                .report-actions { display: none !important; }
-                
-                /* Mostrar todas las graficas ocultas en las pestañas y ponerles titulo */
-                .tab-ataque-content, .tab-saque-content, .tab-golpes-content { display: block !important; margin-bottom: 25px; }
-                .tab-ataque-content::before, .tab-saque-content::before, .tab-golpes-content::before {
-                    content: attr(data-label);
-                    display: block;
-                    font-size: 16px;
-                    color: #f59e0b;
-                    margin-bottom: 12px;
-                    font-weight: 600;
-                    text-align: center;
-                }
-                
-                #section-patrones, #section-highlights { display: none !important; }
-                
-                .report-conclusions::after {
-                    content: "${(document.getElementById('conclusiones-text')?.value || '').replace(/\n/g, '\\n')}";
-                    display: block;
-                    background: #111827;
-                    border: 1px solid #1e293b;
-                    padding: 15px;
-                    border-radius: 8px;
-                    color: #e2e8f0;
-                    font-size: 14px;
-                    white-space: pre-wrap;
-                    break-inside: avoid;
-                    page-break-inside: avoid;
-                }
-            </style>
-        </head>
-        <body>
-            <h1>📊 Informe de Scouting - BVScouter</h1>
-            ${container.querySelector('.report-header .report-meta')?.outerHTML || ''}
-            ${bodyHtml}
-        </body>
-        </html>
-    `;
-
-    try {
-        const contentHeight = container.querySelector('.report-container')?.scrollHeight || 3000;
-        const result = await window.api.generatePDF(reportHTML, contentHeight);
-        if (result) {
-            showToast('PDF guardado correctamente', 'success');
-        }
-    } catch (err) {
-        showToast('Error al generar PDF', 'error');
-        console.error(err);
-    }
-}

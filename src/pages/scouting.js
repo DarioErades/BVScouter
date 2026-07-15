@@ -4,6 +4,7 @@ import { router } from '../router.js';
 import { showToast, formatTimestamp, getYoutubeId } from '../utils/helpers.js';
 import { TIPOS_ACCION, SUBTIPOS, RESULTADOS, COMPLEJOS, SHORTCUTS } from '../utils/constants.js';
 import { calcularStats } from '../utils/stats-calculator.js';
+import { getPrefs } from '../utils/theme.js';
 
 let scoutingState = null;
 let keyHandler = null;
@@ -310,6 +311,19 @@ function renderScoutingUI(container) {
                         <input type="checkbox" id="vid-mostrar-acciones" style="width: 16px; height: 16px; accent-color: #38bdf8;">
                         🃏 Mostrar tarjeta con las acciones de cada punto en el vídeo
                     </label>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #e2e8f0; font-size: 0.9rem; padding: 8px 0; margin-top: -8px;">
+                        <input type="checkbox" id="vid-con-marcador" checked style="width: 16px; height: 16px; accent-color: #38bdf8;">
+                        💯 Incluir marcador en el vídeo
+                    </label>
+                    <div id="vid-progress-container" style="display: none; margin-top: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <label class="form-label" style="margin: 0;">Exportando vídeo...</label>
+                            <span id="vid-progress-text" style="color: white; font-size: 12px;">0%</span>
+                        </div>
+                        <div style="width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
+                            <div id="vid-progress-bar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.2s;"></div>
+                        </div>
+                    </div>
                     <button id="btn-generar-videos-run" class="btn btn-primary mt-16" style="width: 100%;">✂️ Generar Vídeo (Combina la jugada)</button>
                 </div>
             </div>
@@ -346,6 +360,10 @@ function renderScoutingUI(container) {
                     <div>
                         <label class="form-label">Subtipo (Detalle)</label>
                         <select id="edit-subtipo" class="form-input"></select>
+                    </div>
+                    <div>
+                        <label class="form-label">Tiempo del Vídeo (segundos)</label>
+                        <input type="number" id="edit-tiempo" class="form-input" step="0.01" min="0">
                     </div>
                     <div>
                         <label class="form-label">Resultado Final</label>
@@ -496,6 +514,18 @@ function setupEditActionEvents() {
         scoutingState.wizardModalAbierto = false;
     });
     
+    // IPC Progress listener
+    if (window.api && window.api.onVideoProgress) {
+        window.api.onVideoProgress((pct) => {
+            const bar = document.getElementById('vid-progress-bar');
+            const txt = document.getElementById('vid-progress-text');
+            if (bar && txt) {
+                bar.style.width = pct + '%';
+                txt.textContent = pct + '%';
+            }
+        });
+    }
+
     document.getElementById('btn-generar-videos-run')?.addEventListener('click', async () => {
         const btnRun = document.getElementById('btn-generar-videos-run');
         const filters = {};
@@ -510,6 +540,7 @@ function setupEditActionEvents() {
         const mPost = document.getElementById('vid-margin-post').value;
         const setNum = document.getElementById('vid-set')?.value;
         const mostrarAcciones = document.getElementById('vid-mostrar-acciones')?.checked;
+        const conMarcador = document.getElementById('vid-con-marcador')?.checked !== false; // por defecto true
         
         if (modo !== 'puntos' && modo !== 'favoritos') {
             if (jug) filters.jugador_nombre = jug;
@@ -520,11 +551,20 @@ function setupEditActionEvents() {
         
         if (setNum) filters.set_numero = parseInt(setNum, 10);
         if (mostrarAcciones) filters.mostrar_acciones = true;
+        filters.con_marcador = conMarcador;
         filters.pre_margin = mPre ? parseFloat(mPre) : 3;
         filters.post_margin = mPost ? parseFloat(mPost) : 1;
 
         btnRun.disabled = true;
         btnRun.textContent = '⏳ Generando...';
+        
+        const progContainer = document.getElementById('vid-progress-container');
+        const progBar = document.getElementById('vid-progress-bar');
+        const progText = document.getElementById('vid-progress-text');
+        if (progContainer) progContainer.style.display = 'block';
+        if (progBar) progBar.style.width = '0%';
+        if (progText) progText.textContent = '0%';
+
         try {
             const path = await window.api.generateVideoHighlights(scoutingState.partidoId, filters);
             if (path) {
@@ -537,6 +577,7 @@ function setupEditActionEvents() {
         } finally {
             btnRun.disabled = false;
             btnRun.textContent = '✂️ Generar Vídeo (Combina la jugada)';
+            if (progContainer) progContainer.style.display = 'none';
         }
     });
 
@@ -553,7 +594,8 @@ function setupEditActionEvents() {
             jugador_nombre: document.getElementById('edit-jugador').value,
             tipo_accion: document.getElementById('edit-tipo').value,
             subtipo: document.getElementById('edit-subtipo').value,
-            resultado: document.getElementById('edit-resultado').value
+            resultado: document.getElementById('edit-resultado').value,
+            video_timestamp: parseFloat(document.getElementById('edit-tiempo').value) || 0
         };
 
         await window.api.updateAccion(scoutingState.editingActionId, updatedData);
@@ -833,7 +875,7 @@ function setupKeyboardShortcuts(container) {
 
     keyHandler = (e) => {
         // ignorar si estamos escribiendo en un input
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
         if (router.getCurrentPage() !== 'scouting') return;
 
         // Si el modal wizard está abierto, ignoramos los atajos globales para no interferir
@@ -1018,7 +1060,7 @@ function setupKeyboardShortcuts(container) {
         if (e.defaultPrevented) return; // Si la tecla ya fue procesada por keyHandler (ej: para abrir el modal), ignorar
 
         // ignorar si estamos escribiendo en un input
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
         if (router.getCurrentPage() !== 'scouting') return;
         
         if (e.key === 'Escape') {
@@ -1117,13 +1159,16 @@ function closeWizardModal() {
     }
 }
 
-const ATTACK_TYPES = [
-    { label: 'Ataque', key: 'a' },
-    { label: 'Toque', key: 't' },
-    { label: 'Pockey', key: 'p' },
-    { label: 'Rejuego', key: 'r' },
-    { label: 'Lucha', key: 'l' }
-];
+const getAttackTypes = () => {
+    const prefs = getPrefs();
+    return [
+        { label: 'Ataque', key: prefs.keyAtaque || 'a' },
+        { label: 'Toque', key: 't' },
+        { label: 'Acelerada', key: prefs.keyAcelerada || 'q' },
+        { label: 'Rejuego', key: 'r' },
+        { label: 'Lucha', key: 'l' }
+    ];
+};
 const ATTACK_DIRS_FULL = [
     { label: 'Línea Larga', key: '1' },
     { label: 'Línea Corta', key: '2' },
@@ -1171,7 +1216,7 @@ function renderWizardModal() {
     if (actionType === 'ataque') {
         if (wiz.step === 1) {
             title = '1. Tipo de Golpe';
-            options = ATTACK_TYPES;
+            options = getAttackTypes();
         } else if (wiz.step === 2) {
             if (wiz.type.label === 'Lucha') {
                 title = `Resultado (Lucha)`;
@@ -1224,7 +1269,7 @@ function handleWizardKey(key) {
     
     if (actionType === 'ataque') {
         if (wiz.step === 1) {
-            const opt = ATTACK_TYPES.find(o => o.key === key);
+            const opt = getAttackTypes().find(o => o.key === key);
             if (opt) {
                 wiz.type = opt;
                 if (opt.label === 'Rejuego') {
@@ -1515,6 +1560,9 @@ function refreshTimelineAndStats() {
             document.getElementById('edit-tipo').value = action.tipo_accion;
             populateEditSubtipo(action.tipo_accion, action.subtipo || '');
             document.getElementById('edit-resultado').value = action.resultado || 'continuidad';
+            
+            const tiempoInput = document.getElementById('edit-tiempo');
+            if (tiempoInput) tiempoInput.value = (action.video_timestamp || 0).toFixed(2);
 
             document.getElementById('edit-action-modal').style.display = 'flex';
             scoutingState.wizardModalAbierto = true;
@@ -1759,6 +1807,19 @@ function populateEditSubtipo(tipo, currentValue) {
             opt.textContent = sub.label;
             subtipoSelect.appendChild(opt);
         });
+        
+        // Agregar las opciones del wizard de saque
+        if (tipo === 'saque') {
+            const extraSaque = ['En Sistema', 'Fuera de Sistema', 'Punto (Ace)', 'Error'];
+            extraSaque.forEach(lbl => {
+                if (!Array.from(subtipoSelect.options).some(o => o.value === lbl)) {
+                    const opt = document.createElement('option');
+                    opt.value = lbl;
+                    opt.textContent = lbl;
+                    subtipoSelect.appendChild(opt);
+                }
+            });
+        }
     }
 
     if (currentValue) {

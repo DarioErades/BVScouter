@@ -166,3 +166,11 @@
     color: var(--text-primary);
     line-height: 1.5;
 }
+
+.tab-hidden-initially {
+    position: absolute !important;
+    left: -9999px !important;
+    top: -9999px !important;
+    visibility: hidden !important;
+    display: block !important;
+}

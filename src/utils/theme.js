@@ -16,7 +16,9 @@ export const ACCENT_PRESETS = [
 const DEFAULT_PREFS = {
     theme: 'dark',       // 'dark' | 'light'
     accent: '#f59e0b',
-    density: 'normal'    // 'normal' | 'compact'
+    density: 'normal',   // 'normal' | 'compact'
+    keyAtaque: 'a',
+    keyAcelerada: 'q'
 };
 
 export function getPrefs() {

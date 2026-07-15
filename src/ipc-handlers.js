@@ -1,6 +1,6 @@
 import { ipcMain, dialog, BrowserWindow, shell, app } from 'electron';
 import { getDB } from './database.js';
-import { exec, execFile } from 'node:child_process';
+import { exec, execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -504,11 +504,20 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   const mostrarAcciones = !!filters.mostrar_acciones;
   const textFiles = [];
   const sessionId = Date.now();
+  
+  let ffmpegArgs = ['-y'];
 
   intervals.forEach((interval, i) => {
-      // marcador bonito arriba a la derecha
+      const duration = interval.end - interval.start;
+      ffmpegArgs.push('-ss', interval.start.toFixed(3), '-t', duration.toFixed(3), '-i', videoPath);
+
       const text = ` ${interval.score} `;
-      let extraDraw = '';
+      const conMarcador = filters.con_marcador !== false;
+      let vFilters = ['setpts=PTS-STARTPTS'];
+
+      if (conMarcador) {
+          vFilters.push(`drawtext=text='${text}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=15:x=w-tw-30:y=30`);
+      }
 
       if (mostrarAcciones) {
           const lines = buildActionLines(interval.acciones);
@@ -516,14 +525,14 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
               const txtPath = path.join(os.tmpdir(), `bvscouter_card_${sessionId}_${i}.txt`);
               fs.writeFileSync(txtPath, lines.join('\n'));
               textFiles.push(txtPath);
-              extraDraw = `,drawtext=textfile=${txtPath}:expansion=none:fontcolor=white:fontsize=26:line_spacing=10:box=1:boxcolor=black@0.65:boxborderw=14:x=30:y=h-th-40`;
+              vFilters.push(`drawtext=textfile=${txtPath}:expansion=none:fontcolor=white:fontsize=26:line_spacing=10:box=1:boxcolor=black@0.65:boxborderw=14:x=30:y=h-th-40`);
           }
       }
 
-      filterGraph += `[0:v]trim=start=${interval.start.toFixed(2)}:end=${interval.end.toFixed(2)},setpts=PTS-STARTPTS,drawtext=text='${text}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=15:x=w-tw-30:y=30${extraDraw}[v${i}];\n`;
+      filterGraph += `[${i}:v]${vFilters.join(',')}[v${i}];\n`;
       
       if (hasAudio) {
-          filterGraph += `[0:a]atrim=start=${interval.start.toFixed(2)}:end=${interval.end.toFixed(2)},asetpts=PTS-STARTPTS[a${i}];\n`;
+          filterGraph += `[${i}:a]asetpts=PTS-STARTPTS[a${i}];\n`;
           concatInputs += `[v${i}][a${i}]`;
       } else {
           concatInputs += `[v${i}]`;
@@ -536,16 +545,45 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   
   try {
       // re-encode the segments, fixes glitching perfectly
-      const audioMap = hasAudio ? ['-map', '[outa]'] : [];
-      await execFileAsync('ffmpeg', [
-        '-y',
-        '-i', videoPath,
-        '-filter_complex_script', filterFilePath,
-        '-map', '[outv]',
-        ...audioMap,
-        filePath
-      ]);
+      ffmpegArgs.push('-filter_complex_script', filterFilePath, '-map', '[outv]');
+      if (hasAudio) {
+          ffmpegArgs.push('-map', '[outa]');
+      }
+      ffmpegArgs.push('-preset', 'superfast', filePath);
       
+      const totalDuration = intervals.reduce((acc, curr) => acc + (curr.end - curr.start), 0);
+      
+      await new Promise((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+          
+          ffmpeg.stderr.on('data', (data) => {
+              const str = data.toString();
+              try { fs.appendFileSync('/tmp/ffmpeg_debug.log', str); } catch (e) {}
+              const timeMatch = str.match(/time=(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
+              if (timeMatch) {
+                  const hours = parseInt(timeMatch[1], 10);
+                  const minutes = parseInt(timeMatch[2], 10);
+                  const seconds = parseFloat(timeMatch[3]);
+                  const currentTime = (hours * 3600) + (minutes * 60) + seconds;
+                  
+                  console.log(`FFmpeg progress: ${currentTime.toFixed(2)}s / ${totalDuration.toFixed(2)}s`);
+                  if (totalDuration > 0) {
+                      let pct = Math.round((currentTime / totalDuration) * 100);
+                      if (pct > 100) pct = 100;
+                      console.log(`Calculated percentage: ${pct}%`);
+                      _event.sender.send('video:progress', pct);
+                  }
+              }
+          });
+          
+          ffmpeg.on('close', (code) => {
+              if (code === 0) resolve();
+              else reject(new Error('FFmpeg exited con código ' + code));
+          });
+          ffmpeg.on('error', reject);
+      });
+      
+      _event.sender.send('video:progress', 100);
       shell.openPath(filePath);
       return filePath;
   } catch (err) {

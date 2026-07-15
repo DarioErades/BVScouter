@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('api', {
   getStats: (partidoId) => ipcRenderer.invoke('stats:getByPartido', partidoId),
   generatePDF: (html, height) => ipcRenderer.invoke('pdf:generate', html, height),
   generateVideoHighlights: (partidoId, filters) => ipcRenderer.invoke('video:generateHighlights', partidoId, filters),
+  onVideoProgress: (callback) => {
+    ipcRenderer.removeAllListeners('video:progress');
+    ipcRenderer.on('video:progress', (_event, progress) => callback(progress));
+  },
   // copias de seguridad y exportacion
   backupDatabase: () => ipcRenderer.invoke('db:backup'),
   restoreDatabase: () => ipcRenderer.invoke('db:restore'),

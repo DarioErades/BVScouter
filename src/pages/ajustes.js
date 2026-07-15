@@ -91,6 +91,28 @@ function renderPage(container) {
                 </div>
             </div>
 
+            <div class="card settings-card">
+                <h3 class="settings-section-title">⌨️ Atajos de Teclado</h3>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label">Tecla Ataque</div>
+                        <div class="setting-hint">Tecla para el tipo de golpe Ataque</div>
+                    </div>
+                    <div>
+                        <input type="text" id="key-ataque" value="${prefs.keyAtaque || 'a'}" maxlength="1" style="width: 40px; text-align: center; text-transform: lowercase;" class="form-input">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label">Tecla Acelerada</div>
+                        <div class="setting-hint">Tecla para el tipo de golpe Acelerada</div>
+                    </div>
+                    <div>
+                        <input type="text" id="key-acelerada" value="${prefs.keyAcelerada || 'q'}" maxlength="1" style="width: 40px; text-align: center; text-transform: lowercase;" class="form-input">
+                    </div>
+                </div>
+            </div>
+
             <div class="flex gap-12" style="margin-top: 8px;">
                 <button class="btn btn-secondary" id="btn-reset-ajustes">↺ Restablecer valores</button>
             </div>
@@ -148,8 +170,20 @@ function bindEvents(container) {
         }
     });
 
+    const keyAtaqueInput = container.querySelector('#key-ataque');
+    keyAtaqueInput?.addEventListener('change', (e) => {
+        savePrefs({ keyAtaque: e.target.value.toLowerCase() || 'a' });
+        showToast('Atajo de Ataque actualizado', 'success');
+    });
+
+    const keyAceleradaInput = container.querySelector('#key-acelerada');
+    keyAceleradaInput?.addEventListener('change', (e) => {
+        savePrefs({ keyAcelerada: e.target.value.toLowerCase() || 'q' });
+        showToast('Atajo de Acelerada actualizado', 'success');
+    });
+
     container.querySelector('#btn-reset-ajustes')?.addEventListener('click', () => {
-        savePrefs({ theme: 'dark', accent: '#f59e0b', density: 'normal' });
+        savePrefs({ theme: 'dark', accent: '#f59e0b', density: 'normal', keyAtaque: 'a', keyAcelerada: 'q' });
         applyPrefs();
         renderPage(container);
         showToast('Ajustes restablecidos', 'info');

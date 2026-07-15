@@ -66,7 +66,7 @@ function calcularStatsJugador(acciones, jugadorNombre) {
     const puntosK1 = fbsoPuntos + transPuntos;
 
     const sideOutFirstPct = fbsoOportunidades > 0 ? Math.round((fbsoPuntos / fbsoOportunidades) * 100) : 0;
-    const sideOutTransPct = totalK1 > 0 ? Math.round((puntosK1 / totalK1) * 100) : 0;
+    const sideOutTransPct = transOportunidades > 0 ? Math.round((transPuntos / transOportunidades) * 100) : 0;
 
     // Marcar ataques con fase (K1 vs K2)
     const ralliesAll = {};

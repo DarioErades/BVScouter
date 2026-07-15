@@ -9,6 +9,7 @@ import { getPrefs } from '../utils/theme.js';
 let scoutingState = null;
 let keyHandler = null;
 let processSubtypeKey = null;
+let speedHoldHandler = null;
 
 export function registerScouting() {
     router.register('scouting', async (container, params) => {
@@ -1094,9 +1095,6 @@ function setupKeyboardShortcuts(container) {
                     vc?.requestFullscreen();
                 }
                 break;
-            case 'videoSpeed3x':
-                setVideoSpeed(3);
-                break;
             case 'videoReverse':
                 toggleVideoReverse();
                 break;
@@ -1147,6 +1145,38 @@ function setupKeyboardShortcuts(container) {
 
     document.addEventListener('keydown', keyHandler);
     document.addEventListener('keydown', processSubtypeKey);
+
+    // P mantenida: 3x mientras se pulsa, vuelve a normal al soltar
+    speedHoldHandler = {
+        down: (e) => {
+            if (e.key !== 'p' && e.key !== 'P') return;
+            if (e.repeat) return; // ignoramos el autorepeat del SO
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (router.getCurrentPage() !== 'scouting') return;
+            if (scoutingState.tipoAccion) {
+                const subs = SUBTIPOS[scoutingState.tipoAccion] || [];
+                if (subs.some(s => s.key === 'p')) return;
+            }
+            const video = document.getElementById('local-video');
+            if (!video) return;
+            // aplicamos 3x sin tocar el estado guardado
+            video.playbackRate = 3;
+            const indicator = document.getElementById('speed-indicator');
+            if (indicator) indicator.textContent = '3x';
+        },
+        up: (e) => {
+            if (e.key !== 'p' && e.key !== 'P') return;
+            if (router.getCurrentPage() !== 'scouting') return;
+            const video = document.getElementById('local-video');
+            if (!video) return;
+            // restauramos la velocidad guardada en el estado
+            video.playbackRate = scoutingState.videoSpeed;
+            const indicator = document.getElementById('speed-indicator');
+            if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
+        }
+    };
+    document.addEventListener('keydown', speedHoldHandler.down);
+    document.addEventListener('keyup',   speedHoldHandler.up);
 }
 
 function limpiarShortcuts() {
@@ -1157,6 +1187,11 @@ function limpiarShortcuts() {
     if (processSubtypeKey) {
         document.removeEventListener('keydown', processSubtypeKey);
         processSubtypeKey = null;
+    }
+    if (speedHoldHandler) {
+        document.removeEventListener('keydown', speedHoldHandler.down);
+        document.removeEventListener('keyup',   speedHoldHandler.up);
+        speedHoldHandler = null;
     }
     // paramos la reversa si estaba activa
     if (scoutingState && scoutingState.reverseInterval) {
@@ -1845,19 +1880,23 @@ function renderLiveStats() {
     return `
         <div class="live-stat-card">
             <div class="live-stat-value text-accent" style="font-size: 20px;">${j1.sideOutFirstPct}% <span style="font-size: 14px; opacity: 0.7;">(${j1.fbsoPuntos}/${j1.fbsoOportunidades})</span></div>
-            <div class="live-stat-label">Side-Out a la primera ${partido.jugador1_nombre}</div>
+            <div class="live-stat-label">FBSO ${partido.jugador1_nombre}</div>
+            <div style="font-size: 10px; opacity: 0.5; margin-top: 2px;">1 ataque, sin defensa previa</div>
         </div>
         <div class="live-stat-card">
             <div class="live-stat-value text-accent" style="font-size: 20px;">${j2.sideOutFirstPct}% <span style="font-size: 14px; opacity: 0.7;">(${j2.fbsoPuntos}/${j2.fbsoOportunidades})</span></div>
-            <div class="live-stat-label">Side-Out a la primera ${partido.jugador2_nombre}</div>
+            <div class="live-stat-label">FBSO ${partido.jugador2_nombre}</div>
+            <div style="font-size: 10px; opacity: 0.5; margin-top: 2px;">1 ataque, sin defensa previa</div>
         </div>
         <div class="live-stat-card">
             <div class="live-stat-value" style="font-size: 20px;">${j1.totalK1 > 0 ? Math.round((j1.puntosK1 / j1.totalK1) * 100) : 0}% <span style="font-size: 14px; opacity: 0.7;">(${j1.puntosK1}/${j1.totalK1})</span></div>
-            <div class="live-stat-label">Side-Out Total ${partido.jugador1_nombre}</div>
+            <div class="live-stat-label">K1 Total ${partido.jugador1_nombre}</div>
+            <div style="font-size: 10px; opacity: 0.5; margin-top: 2px;">Todos los rallies de recepción</div>
         </div>
         <div class="live-stat-card">
             <div class="live-stat-value" style="font-size: 20px;">${j2.totalK1 > 0 ? Math.round((j2.puntosK1 / j2.totalK1) * 100) : 0}% <span style="font-size: 14px; opacity: 0.7;">(${j2.puntosK1}/${j2.totalK1})</span></div>
-            <div class="live-stat-label">Side-Out Total ${partido.jugador2_nombre}</div>
+            <div class="live-stat-label">K1 Total ${partido.jugador2_nombre}</div>
+            <div style="font-size: 10px; opacity: 0.5; margin-top: 2px;">Todos los rallies de recepción</div>
         </div>
         <div class="live-stat-card">
             <div class="live-stat-value" style="color: var(--accent-success)">${j1.killsAtaque + j2.killsAtaque}</div>

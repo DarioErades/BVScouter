@@ -33,6 +33,7 @@ function calcularStatsJugador(acciones, jugadorNombre) {
     Object.values(ralliesK1).forEach(rally => {
         const ataques = rally.filter(a => a.tipo_accion === 'ataque');
         const defensas = rally.filter(a => a.tipo_accion === 'defensa');
+        // FBSO = un solo ataque propio y sin necesidad de defender (bloqueos del rival no cuentan)
         const isFBSO = ataques.length <= 1 && defensas.length === 0;
 
         // Las acciones 'rival' y 'error_general' son eventos de equipo (no de un jugador

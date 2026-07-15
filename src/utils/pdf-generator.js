@@ -428,22 +428,16 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
                 <thead><tr><th class="th-left">Tipo</th><th>Puntos</th><th>Opor.</th><th>%</th></tr></thead>
                 <tbody>
                     <tr>
+                        <td class="col-label">K1 General</td>
+                        <td>${j1.puntosK1}</td>
+                        <td>${j1.totalK1}</td>
+                        <td class="highlight"><strong>${j1SoPct}%</strong></td>
+                    </tr>
+                    <tr>
                         <td class="col-label">A la Primera (FBSO)</td>
                         <td>${j1.fbsoPuntos}</td>
-                        <td>${j1.fbsoOportunidades}</td>
+                        <td>${j1.totalK1}</td>
                         <td class="highlight">${j1.sideOutFirstPct}%</td>
-                    </tr>
-                    <tr>
-                        <td class="col-label">En Transicion</td>
-                        <td>${j1.transPuntos}</td>
-                        <td>${j1.transOportunidades}</td>
-                        <td class="highlight">${j1.sideOutTransPct}%</td>
-                    </tr>
-                    <tr>
-                        <td class="col-label"><strong>Total K1</strong></td>
-                        <td><strong>${j1.puntosK1}</strong></td>
-                        <td><strong>${j1.totalK1}</strong></td>
-                        <td class="highlight"><strong>${j1SoPct}%</strong></td>
                     </tr>
                 </tbody>
             </table>
@@ -454,22 +448,16 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
                 <thead><tr><th class="th-left">Tipo</th><th>Puntos</th><th>Opor.</th><th>%</th></tr></thead>
                 <tbody>
                     <tr>
+                        <td class="col-label">K1 General</td>
+                        <td>${j2.puntosK1}</td>
+                        <td>${j2.totalK1}</td>
+                        <td class="highlight"><strong>${j2SoPct}%</strong></td>
+                    </tr>
+                    <tr>
                         <td class="col-label">A la Primera (FBSO)</td>
                         <td>${j2.fbsoPuntos}</td>
-                        <td>${j2.fbsoOportunidades}</td>
+                        <td>${j2.totalK1}</td>
                         <td class="highlight">${j2.sideOutFirstPct}%</td>
-                    </tr>
-                    <tr>
-                        <td class="col-label">En Transicion</td>
-                        <td>${j2.transPuntos}</td>
-                        <td>${j2.transOportunidades}</td>
-                        <td class="highlight">${j2.sideOutTransPct}%</td>
-                    </tr>
-                    <tr>
-                        <td class="col-label"><strong>Total K1</strong></td>
-                        <td><strong>${j2.puntosK1}</strong></td>
-                        <td><strong>${j2.totalK1}</strong></td>
-                        <td class="highlight"><strong>${j2SoPct}%</strong></td>
                     </tr>
                 </tbody>
             </table>

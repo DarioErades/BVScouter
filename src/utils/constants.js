@@ -102,7 +102,9 @@ export const SHORTCUTS = {
     '.': { action: 'videoFrameForward' },
     '-': { action: 'videoSlower' },
     '+': { action: 'videoFaster' },
-    'f': { action: 'videoFullscreen' }
+    'f': { action: 'videoFullscreen' },
+    'p': { action: 'videoSpeed3x' },
+    'l': { action: 'videoReverse' }
 };
 
 export const FASES_TORNEO = [

@@ -39,7 +39,8 @@ export function registerScouting() {
             attackWizard: { step: 1, type: null, dir: null, result: null },
             allowFullscreenSelectors: true,
             enterTimer: null,
-            backspaceTimer: null
+            backspaceTimer: null,
+            reverseInterval: null
         };
 
         // si hay acciones previas, cogemos el ultimo set
@@ -629,17 +630,15 @@ function renderVideoPlayer() {
     }
 
     if (partido.video_tipo === 'youtube') {
-        const youtubeId = getYoutubeId(partido.video_url);
-        if (!youtubeId) {
-            return `<div class="video-placeholder"><p>URL de YouTube no válida</p></div>`;
-        }
         return `
-            <iframe id="youtube-player"
-                src="https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&rel=0&origin=${window.location.origin}"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowfullscreen
-                sandbox="allow-scripts allow-same-origin allow-presentation">
-            </iframe>
+            <div class="video-placeholder" id="yt-download-placeholder">
+                <div class="video-placeholder-icon">⬇️</div>
+                <p id="yt-status-msg">Preparando vídeo de YouTube...</p>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Se descarga una vez y se cachea localmente</p>
+                <div id="yt-progress-bar-wrap" style="width:80%;height:4px;background:rgba(255,255,255,0.15);border-radius:4px;margin-top:12px;overflow:hidden;display:none;">
+                    <div id="yt-progress-bar-inner" style="height:100%;width:0%;background:var(--accent);transition:width 0.3s;"></div>
+                </div>
+            </div>
         `;
     }
 
@@ -667,30 +666,9 @@ function renderVideoPlayer() {
 }
 
 function setupVideoPlayer(container) {
-    const ytIframe = document.getElementById('youtube-player');
-    if (ytIframe) {
-        const initPlayer = () => {
-            window.ytPlayer = new YT.Player('youtube-player', {
-                events: {
-                    'onReady': () => {
-                        window.getCurrentVideoTime = () => window.ytPlayer.getCurrentTime();
-                    }
-                }
-            });
-        };
-
-        if (window.YT && window.YT.Player) {
-            initPlayer();
-        } else {
-            if (!document.getElementById('youtube-api-script')) {
-                const tag = document.createElement('script');
-                tag.id = 'youtube-api-script';
-                tag.src = "https://www.youtube.com/iframe_api";
-                const firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-            }
-            window.onYouTubeIframeAPIReady = initPlayer;
-        }
+    const ytPlaceholder = document.getElementById('yt-download-placeholder');
+    if (ytPlaceholder) {
+        setupYoutubeDownload(container);
         return;
     }
 
@@ -735,6 +713,64 @@ function setupVideoPlayer(container) {
     if (speedDown) speedDown.addEventListener('click', () => changeVideoSpeed(-0.25));
     const speedUp = document.getElementById('btn-speed-up');
     if (speedUp) speedUp.addEventListener('click', () => changeVideoSpeed(0.25));
+
+    // evitamos que el video capture las flechas cuando tiene foco (lo maneja el keyHandler global)
+    video.addEventListener('keydown', (e) => {
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
+            e.preventDefault();
+        }
+    });
+}
+
+async function setupYoutubeDownload(container) {
+    const statusMsg = document.getElementById('yt-status-msg');
+    const progressWrap = document.getElementById('yt-progress-bar-wrap');
+    const progressBar = document.getElementById('yt-progress-bar-inner');
+    const videoContainer = document.getElementById('video-container');
+
+    if (statusMsg) statusMsg.textContent = 'Descargando vídeo... (puede tardar unos minutos)';
+    if (progressWrap) progressWrap.style.display = 'block';
+
+    // animacion de progreso indeterminada mientras descarga
+    let fakeProgress = 0;
+    const fakeInterval = setInterval(() => {
+        fakeProgress = Math.min(fakeProgress + Math.random() * 2, 85);
+        if (progressBar) progressBar.style.width = fakeProgress + '%';
+    }, 400);
+
+    try {
+        const localUrl = await window.api.resolveYoutube(scoutingState.partido.video_url);
+        clearInterval(fakeInterval);
+        if (progressBar) progressBar.style.width = '100%';
+
+        // sustituimos el placeholder por el video nativo
+        if (videoContainer) {
+            videoContainer.innerHTML = `
+                <video id="local-video" preload="metadata">
+                    <source src="${localUrl}">
+                    Tu navegador no soporta la reproducción de vídeo
+                </video>
+                <div class="video-controls" id="video-controls">
+                    <button id="btn-play-pause">▶</button>
+                    <div class="video-progress" id="video-progress">
+                        <div class="video-progress-bar" id="video-progress-bar"></div>
+                    </div>
+                    <span class="video-time" id="video-time">00:00 / 00:00</span>
+                    <div style="display:flex; align-items:center; gap:2px; margin-left:8px; margin-right:8px;">
+                        <button id="btn-speed-down" style="background:transparent; border:none; color:white; cursor:pointer;" title="Reducir Velocidad">-</button>
+                        <span class="speed-indicator" id="speed-indicator" style="min-width:30px; text-align:center;">1x</span>
+                        <button id="btn-speed-up" style="background:transparent; border:none; color:white; cursor:pointer;" title="Aumentar Velocidad">+</button>
+                    </div>
+                    <button id="btn-fullscreen">⛶</button>
+                </div>
+            `;
+            setupVideoPlayer(videoContainer);
+        }
+    } catch (err) {
+        clearInterval(fakeInterval);
+        if (statusMsg) statusMsg.textContent = `Error al descargar: ${err.message}`;
+        if (progressBar) { progressBar.style.width = '0%'; progressBar.style.background = '#f44'; }
+    }
 }
 
 function setupActionPanelEvents(container) {
@@ -895,6 +931,12 @@ function setupKeyboardShortcuts(container) {
             return;
         }
 
+        // si hay una accion activa y la tecla es un subtipo de esa accion, la dejamos para processSubtypeKey
+        if (scoutingState.tipoAccion && (shortcut.action === 'videoSpeed3x' || shortcut.action === 'videoReverse')) {
+            const subs = (SUBTIPOS[scoutingState.tipoAccion] || []);
+            if (subs.some(s => s.key === key)) return;
+        }
+
         e.preventDefault();
 
         switch (shortcut.action) {
@@ -1052,6 +1094,12 @@ function setupKeyboardShortcuts(container) {
                     vc?.requestFullscreen();
                 }
                 break;
+            case 'videoSpeed3x':
+                setVideoSpeed(3);
+                break;
+            case 'videoReverse':
+                toggleVideoReverse();
+                break;
         }
     };
 
@@ -1109,6 +1157,11 @@ function limpiarShortcuts() {
     if (processSubtypeKey) {
         document.removeEventListener('keydown', processSubtypeKey);
         processSubtypeKey = null;
+    }
+    // paramos la reversa si estaba activa
+    if (scoutingState && scoutingState.reverseInterval) {
+        clearInterval(scoutingState.reverseInterval);
+        scoutingState.reverseInterval = null;
     }
 }
 
@@ -1382,11 +1435,60 @@ function seekVideo(seconds) {
 function changeVideoSpeed(delta) {
     const video = document.getElementById('local-video');
     if (video) {
+        pararReversa();
         scoutingState.videoSpeed = Math.max(0.25, Math.min(4, scoutingState.videoSpeed + delta));
         video.playbackRate = scoutingState.videoSpeed;
         const indicator = document.getElementById('speed-indicator');
         if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
         showToast(`Velocidad: ${scoutingState.videoSpeed}x`, 'info');
+    }
+}
+
+function setVideoSpeed(speed) {
+    const video = document.getElementById('local-video');
+    if (video) {
+        pararReversa();
+        scoutingState.videoSpeed = speed;
+        video.playbackRate = speed;
+        const indicator = document.getElementById('speed-indicator');
+        if (indicator) indicator.textContent = `${speed}x`;
+        showToast(`Velocidad: ${speed}x`, 'info');
+    }
+}
+
+function pararReversa() {
+    if (scoutingState.reverseInterval) {
+        clearInterval(scoutingState.reverseInterval);
+        scoutingState.reverseInterval = null;
+    }
+}
+
+function toggleVideoReverse() {
+    const video = document.getElementById('local-video');
+    if (!video) return;
+
+    if (scoutingState.reverseInterval) {
+        // ya estaba en reversa, paramos y volvemos a normal
+        pararReversa();
+        video.playbackRate = scoutingState.videoSpeed;
+        const indicator = document.getElementById('speed-indicator');
+        if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
+        showToast('Reversa desactivada', 'info');
+    } else {
+        // activamos reversa: pausamos el video y hacemos seeks hacia atrás
+        video.pause();
+        video.playbackRate = 1;
+        const indicator = document.getElementById('speed-indicator');
+        if (indicator) indicator.textContent = '-1x';
+        showToast('Reversa 1x activada (L para salir)', 'info');
+        // ~30fps de reversa
+        scoutingState.reverseInterval = setInterval(() => {
+            if (video.currentTime <= 0) {
+                pararReversa();
+                return;
+            }
+            video.currentTime = Math.max(0, video.currentTime - 0.033);
+        }, 33);
     }
 }
 

@@ -330,6 +330,13 @@ async function resolverVideoPath(partido) {
   throw new Error('Tipo de vídeo no soportado para generar highlights.');
 }
 
+// descarga el video de yt si hace falta y devuelve la url local-video:// para el player nativo
+ipcMain.handle('video:resolveYoutube', async (_event, videoUrl) => {
+  const partido = { video_tipo: 'youtube', video_url: videoUrl };
+  const filePath = await resolverVideoPath(partido);
+  return `local-video://video?path=${encodeURIComponent(filePath)}`;
+});
+
 ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) => {
   const db = getDB();
   

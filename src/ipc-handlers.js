@@ -608,12 +608,11 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
 
 // ---- PDF ----
 
-ipcMain.handle('pdf:generate', async (_event, html, contentHeight) => {
-  // ventana oculta para generar el PDF
+ipcMain.handle('pdf:generate', async (_event, html, _contentHeight) => {
   const win = new BrowserWindow({
     show: false,
-    width: 1024,
-    height: 1000,
+    width: 1240,
+    height: 1754,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -622,11 +621,14 @@ ipcMain.handle('pdf:generate', async (_event, html, contentHeight) => {
 
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
+  // esperamos que el DOM esté listo
+  await new Promise(r => setTimeout(r, 600));
+
   const pdfData = await win.webContents.printToPDF({
     printBackground: true,
     pageSize: 'A4',
     landscape: false,
-    margins: { marginType: 'none' }
+    margins: { marginType: 'printableArea' }
   });
 
   win.close();

@@ -14,48 +14,48 @@ export function calcularStats(accionesOriginales, jugador1Nombre, jugador2Nombre
 
 function calcularStatsJugador(acciones, jugadorNombre) {
     const accionesJugador = acciones.filter(a => a.jugador_nombre === jugadorNombre);
-    // K1: rallies donde el jugador recibió
-    const ralliesK1 = {};
+    // agrupamos TODAS las acciones por punto (marcador en el momento de la acción)
+    const todosRallies = {};
     acciones.forEach(a => {
-        if (a.complejo === 'K1') {
-            const key = `${a.set_numero}-${a.marcador_local}-${a.marcador_rival}`;
-            if (!ralliesK1[key]) ralliesK1[key] = [];
-            ralliesK1[key].push(a);
-        }
+        const key = `${a.set_numero}-${a.marcador_local}-${a.marcador_rival}`;
+        if (!todosRallies[key]) todosRallies[key] = [];
+        todosRallies[key].push(a);
     });
 
-    let fbsoPuntos = 0;        // puntos ganados con 1 ataque (o error rival)
-    let k1Puntos = 0;          // puntos ganados en total recibiendo
-    let k1Oportunidades = 0;   // denominador común: rallies donde recibió este jugador
+    let fbsoPuntos = 0;
+    let k1Puntos = 0;
+    let k1Oportunidades = 0;
 
-    Object.values(ralliesK1).forEach(rally => {
-        // solo cuenta si este jugador recibió en ese rally
-        const recibio = rally.some(a => a.tipo_accion === 'recepcion' && a.jugador_nombre === jugadorNombre);
+    Object.values(todosRallies).forEach(rally => {
+        // solo rallies donde el jugador recibió (complejo K1)
+        const recibio = rally.some(a =>
+            a.tipo_accion === 'recepcion' && a.jugador_nombre === jugadorNombre
+        );
         if (!recibio) return;
 
         k1Oportunidades++;
 
+        // el punto puede venir de cualquier acción del rally (error rival, ataque, etc.)
         const puntoRally = rally.some(a => a.resultado === 'punto');
         if (puntoRally) {
             k1Puntos++;
-            // FBSO = el primer y único ataque fue un kill directo,
-            // o el punto llegó sin que atacáramos (error rival antes del ataque)
+            // FBSO: exactamente 1 ataque Y ese ataque fue kill directo
             const ataques = rally.filter(a => a.tipo_accion === 'ataque');
-            const esFbso = ataques.length === 0 ||
-                (ataques.length === 1 && ataques[0].resultado === 'punto');
-            if (esFbso) fbsoPuntos++;
+            if (ataques.length === 1 && ataques[0].resultado === 'punto') {
+                fbsoPuntos++;
+            }
         }
     });
 
-    const sideOutFirstPct = k1Oportunidades > 0 ? Math.round((fbsoPuntos / k1Oportunidades) * 100) : 0;
-    const sideOutGeneralPct = k1Oportunidades > 0 ? Math.round((k1Puntos / k1Oportunidades) * 100) : 0;
+    const sideOutFirstPct   = k1Oportunidades > 0 ? Math.round((fbsoPuntos / k1Oportunidades) * 100) : 0;
+    const sideOutGeneralPct = k1Oportunidades > 0 ? Math.round((k1Puntos   / k1Oportunidades) * 100) : 0;
 
-    // mantenemos los nombres viejos para compatibilidad con el resto del código
+    // alias para compatibilidad con el resto del código
     const fbsoOportunidades = k1Oportunidades;
-    const transOportunidades = 0; // ya no separamos
+    const transOportunidades = 0;
     const transPuntos = 0;
     const sideOutTransPct = sideOutGeneralPct;
-    const totalK1 = k1Oportunidades;
+    const totalK1  = k1Oportunidades;
     const puntosK1 = k1Puntos;
 
     // Marcar ataques con fase (K1 vs K2)

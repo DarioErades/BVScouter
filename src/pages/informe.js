@@ -139,12 +139,12 @@ export function registerInforme() {
                                         <div class="report-stat-label" style="font-size: 14px;">General</div>
                                         <div class="report-stat-sublabel">${stats.jugador1.puntosK1} pts / ${stats.jugador1.totalK1} K1</div>
                                     </div>
-                                    <div class="report-stat-value ${getSoClass(stats.jugador1.sideOutTransPct)}" style="font-size: 28px;">${stats.jugador1.sideOutTransPct}%</div>
+                                    <div class="report-stat-value ${getSoClass(stats.jugador1.totalK1 > 0 ? Math.round((stats.jugador1.puntosK1 / stats.jugador1.totalK1) * 100) : 0)}" style="font-size: 28px;">${stats.jugador1.totalK1 > 0 ? Math.round((stats.jugador1.puntosK1 / stats.jugador1.totalK1) * 100) : 0}%</div>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <div>
                                         <div class="report-stat-label" style="font-size: 14px;">A la Primera</div>
-                                        <div class="report-stat-sublabel">${stats.jugador1.fbsoPuntos} pts / ${stats.jugador1.totalK1} K1</div>
+                                        <div class="report-stat-sublabel">${stats.jugador1.fbsoPuntos} pts / ${stats.jugador1.fbsoOportunidades} K1</div>
                                     </div>
                                     <div class="report-stat-value ${getSoClass(stats.jugador1.sideOutFirstPct)}" style="font-size: 28px;">${stats.jugador1.sideOutFirstPct}%</div>
                                 </div>
@@ -156,12 +156,12 @@ export function registerInforme() {
                                         <div class="report-stat-label" style="font-size: 14px;">General</div>
                                         <div class="report-stat-sublabel">${stats.jugador2.puntosK1} pts / ${stats.jugador2.totalK1} K1</div>
                                     </div>
-                                    <div class="report-stat-value ${getSoClass(stats.jugador2.sideOutTransPct)}" style="font-size: 28px;">${stats.jugador2.sideOutTransPct}%</div>
+                                    <div class="report-stat-value ${getSoClass(stats.jugador2.totalK1 > 0 ? Math.round((stats.jugador2.puntosK1 / stats.jugador2.totalK1) * 100) : 0)}" style="font-size: 28px;">${stats.jugador2.totalK1 > 0 ? Math.round((stats.jugador2.puntosK1 / stats.jugador2.totalK1) * 100) : 0}%</div>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <div>
                                         <div class="report-stat-label" style="font-size: 14px;">A la Primera</div>
-                                        <div class="report-stat-sublabel">${stats.jugador2.fbsoPuntos} pts / ${stats.jugador2.totalK1} K1</div>
+                                        <div class="report-stat-sublabel">${stats.jugador2.fbsoPuntos} pts / ${stats.jugador2.fbsoOportunidades} K1</div>
                                     </div>
                                     <div class="report-stat-value ${getSoClass(stats.jugador2.sideOutFirstPct)}" style="font-size: 28px;">${stats.jugador2.sideOutFirstPct}%</div>
                                 </div>

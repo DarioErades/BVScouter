@@ -1844,20 +1844,20 @@ function renderLiveStats() {
 
     return `
         <div class="live-stat-card">
-            <div class="live-stat-value text-accent" style="font-size: 20px;">${j1.sideOutFirstPct}% <span style="font-size: 14px; opacity: 0.7;">(${j1.fbsoPuntos}/${j1.totalK1})</span></div>
+            <div class="live-stat-value text-accent" style="font-size: 20px;">${j1.sideOutFirstPct}% <span style="font-size: 14px; opacity: 0.7;">(${j1.fbsoPuntos}/${j1.fbsoOportunidades})</span></div>
             <div class="live-stat-label">Side-Out a la primera ${partido.jugador1_nombre}</div>
         </div>
         <div class="live-stat-card">
-            <div class="live-stat-value text-accent" style="font-size: 20px;">${j2.sideOutFirstPct}% <span style="font-size: 14px; opacity: 0.7;">(${j2.fbsoPuntos}/${j2.totalK1})</span></div>
+            <div class="live-stat-value text-accent" style="font-size: 20px;">${j2.sideOutFirstPct}% <span style="font-size: 14px; opacity: 0.7;">(${j2.fbsoPuntos}/${j2.fbsoOportunidades})</span></div>
             <div class="live-stat-label">Side-Out a la primera ${partido.jugador2_nombre}</div>
         </div>
         <div class="live-stat-card">
-            <div class="live-stat-value" style="font-size: 20px;">${j1.sideOutTransPct}% <span style="font-size: 14px; opacity: 0.7;">(${j1.puntosK1}/${j1.totalK1})</span></div>
-            <div class="live-stat-label">Puntos Side-Out Ganados ${partido.jugador1_nombre}</div>
+            <div class="live-stat-value" style="font-size: 20px;">${j1.totalK1 > 0 ? Math.round((j1.puntosK1 / j1.totalK1) * 100) : 0}% <span style="font-size: 14px; opacity: 0.7;">(${j1.puntosK1}/${j1.totalK1})</span></div>
+            <div class="live-stat-label">Side-Out Total ${partido.jugador1_nombre}</div>
         </div>
         <div class="live-stat-card">
-            <div class="live-stat-value" style="font-size: 20px;">${j2.sideOutTransPct}% <span style="font-size: 14px; opacity: 0.7;">(${j2.puntosK1}/${j2.totalK1})</span></div>
-            <div class="live-stat-label">Puntos Side-Out Ganados ${partido.jugador2_nombre}</div>
+            <div class="live-stat-value" style="font-size: 20px;">${j2.totalK1 > 0 ? Math.round((j2.puntosK1 / j2.totalK1) * 100) : 0}% <span style="font-size: 14px; opacity: 0.7;">(${j2.puntosK1}/${j2.totalK1})</span></div>
+            <div class="live-stat-label">Side-Out Total ${partido.jugador2_nombre}</div>
         </div>
         <div class="live-stat-card">
             <div class="live-stat-value" style="color: var(--accent-success)">${j1.killsAtaque + j2.killsAtaque}</div>

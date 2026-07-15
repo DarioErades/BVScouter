@@ -38,9 +38,12 @@ function calcularStatsJugador(acciones, jugadorNombre) {
         const puntoRally = rally.some(a => a.resultado === 'punto');
         if (puntoRally) {
             k1Puntos++;
-            // FBSO = ganado con como máximo 1 ataque (o directamente por error rival sin ataque)
+            // FBSO = el primer y único ataque fue un kill directo,
+            // o el punto llegó sin que atacáramos (error rival antes del ataque)
             const ataques = rally.filter(a => a.tipo_accion === 'ataque');
-            if (ataques.length <= 1) fbsoPuntos++;
+            const esFbso = ataques.length === 0 ||
+                (ataques.length === 1 && ataques[0].resultado === 'punto');
+            if (esFbso) fbsoPuntos++;
         }
     });
 

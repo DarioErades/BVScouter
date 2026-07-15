@@ -14,8 +14,7 @@ export function calcularStats(accionesOriginales, jugador1Nombre, jugador2Nombre
 
 function calcularStatsJugador(acciones, jugadorNombre) {
     const accionesJugador = acciones.filter(a => a.jugador_nombre === jugadorNombre);
-
-    // K1 a la primera vs K1 en transicion
+    // K1: rallies donde el jugador recibió
     const ralliesK1 = {};
     acciones.forEach(a => {
         if (a.complejo === 'K1') {
@@ -25,49 +24,36 @@ function calcularStatsJugador(acciones, jugadorNombre) {
         }
     });
 
-    let fbsoPuntos = 0;
-    let transPuntos = 0;
-    let fbsoOportunidades = 0;
-    let transOportunidades = 0;
+    let fbsoPuntos = 0;        // puntos ganados con 1 ataque (o error rival)
+    let k1Puntos = 0;          // puntos ganados en total recibiendo
+    let k1Oportunidades = 0;   // denominador común: rallies donde recibió este jugador
 
     Object.values(ralliesK1).forEach(rally => {
-        const ataques = rally.filter(a => a.tipo_accion === 'ataque');
-        const defensas = rally.filter(a => a.tipo_accion === 'defensa');
-        // FBSO = un solo ataque propio y sin necesidad de defender (bloqueos del rival no cuentan)
-        const isFBSO = ataques.length <= 1 && defensas.length === 0;
+        // solo cuenta si este jugador recibió en ese rally
+        const recibio = rally.some(a => a.tipo_accion === 'recepcion' && a.jugador_nombre === jugadorNombre);
+        if (!recibio) return;
 
-        // Las acciones 'rival' y 'error_general' son eventos de equipo (no de un jugador
-        // concreto); se guardan con el nombre de J1 como placeholder, así que NO deben
-        // usarse para atribuir el side-out a un jugador.
-        const esEventoEquipo = a => a.tipo_accion === 'rival' || a.tipo_accion === 'error_general' || a.tipo_accion === 'fin_set';
+        k1Oportunidades++;
 
         const puntoRally = rally.some(a => a.resultado === 'punto');
-        const recibioJugador = rally.some(a => a.tipo_accion === 'recepcion' && a.jugador_nombre === jugadorNombre);
-        const atacoJugador = rally.some(a => a.tipo_accion === 'ataque' && a.jugador_nombre === jugadorNombre);
-        const hizoPunto = rally.some(a => a.resultado === 'punto' && !esEventoEquipo(a) && a.jugador_nombre === jugadorNombre);
-
-        // En voley playa, el side-out se atribuye a quien recibe.
-        // Si no hay recepcion registrada, se lo atribuimos a quien atacó o hizo el punto
-        // con una acción real (nunca a partir de un error/acierto del rival).
-        const hayRecepcionEnRally = rally.some(a => a.tipo_accion === 'recepcion');
-        const participo = hayRecepcionEnRally ? recibioJugador : (atacoJugador || hizoPunto);
-
-        if (participo) {
-            if (isFBSO) {
-                fbsoOportunidades++;
-                if (puntoRally) fbsoPuntos++;
-            } else {
-                transOportunidades++;
-                if (puntoRally) transPuntos++;
-            }
+        if (puntoRally) {
+            k1Puntos++;
+            // FBSO = ganado con como máximo 1 ataque (o directamente por error rival sin ataque)
+            const ataques = rally.filter(a => a.tipo_accion === 'ataque');
+            if (ataques.length <= 1) fbsoPuntos++;
         }
     });
 
-    const totalK1 = fbsoOportunidades + transOportunidades;
-    const puntosK1 = fbsoPuntos + transPuntos;
+    const sideOutFirstPct = k1Oportunidades > 0 ? Math.round((fbsoPuntos / k1Oportunidades) * 100) : 0;
+    const sideOutGeneralPct = k1Oportunidades > 0 ? Math.round((k1Puntos / k1Oportunidades) * 100) : 0;
 
-    const sideOutFirstPct = fbsoOportunidades > 0 ? Math.round((fbsoPuntos / fbsoOportunidades) * 100) : 0;
-    const sideOutTransPct = transOportunidades > 0 ? Math.round((transPuntos / transOportunidades) * 100) : 0;
+    // mantenemos los nombres viejos para compatibilidad con el resto del código
+    const fbsoOportunidades = k1Oportunidades;
+    const transOportunidades = 0; // ya no separamos
+    const transPuntos = 0;
+    const sideOutTransPct = sideOutGeneralPct;
+    const totalK1 = k1Oportunidades;
+    const puntosK1 = k1Puntos;
 
     // Marcar ataques con fase (K1 vs K2)
     const ralliesAll = {};

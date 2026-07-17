@@ -393,6 +393,28 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
             <div class="bs-sub">${j2.puntosK1}/${j2.totalK1} K1</div>
         </div>
     </div>
+    <div class="big-stat-grid" style="margin-top: 10px;">
+        <div class="big-stat">
+            <div class="bs-val" style="color: #16a34a;">${stats.general.puntosTotalesEquipo}</div>
+            <div class="bs-label">Puntos Ganados</div>
+            <div class="bs-sub">Equipo</div>
+        </div>
+        <div class="big-stat">
+            <div class="bs-val" style="color: #dc2626;">${stats.general.puntosPerdidosEquipo}</div>
+            <div class="bs-label">Puntos Perdidos</div>
+            <div class="bs-sub">Equipo</div>
+        </div>
+        <div class="big-stat">
+            <div class="bs-val" style="color: #dc2626;">${stats.general.aciertosRival}</div>
+            <div class="bs-label">Aciertos Rival</div>
+            <div class="bs-sub">Aciertos oponente</div>
+        </div>
+        <div class="big-stat">
+            <div class="bs-val" style="color: #dc2626;">${stats.general.erroresPropiosEquipo}</div>
+            <div class="bs-label">Errores Propios</div>
+            <div class="bs-sub">Equipo total</div>
+        </div>
+    </div>
 
     <table>
         <thead>

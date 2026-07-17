@@ -93,31 +93,47 @@ export function registerInforme() {
                     <!-- seccion 0: rendimiento general -->
                     <div class="report-section">
                         <h2 class="report-section-title">🏆 Rendimiento General</h2>
-                        <div class="report-grid" style="grid-template-columns: repeat(5, 1fr); margin-bottom: 24px;">
+                        <div class="report-grid" style="grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
                             <div class="report-stat-card">
-                                <div class="report-stat-value" style="color: var(--accent-success)">${stats.jugador1.puntosDirectos - stats.jugador1.erroresPropios > 0 ? '+' : ''}${stats.jugador1.puntosDirectos - stats.jugador1.erroresPropios}</div>
+                                <div class="report-stat-value ${stats.jugador1.puntosDirectos - stats.jugador1.erroresPropios >= 0 ? 'good' : 'bad'}">${stats.jugador1.puntosDirectos - stats.jugador1.erroresPropios > 0 ? '+' : ''}${stats.jugador1.puntosDirectos - stats.jugador1.erroresPropios}</div>
                                 <div class="report-stat-label">G-P ${partido.jugador1_nombre}</div>
                                 <div class="report-stat-sublabel">${stats.jugador1.puntosDirectos} puntos · ${stats.jugador1.erroresPropios} errores</div>
                             </div>
                             <div class="report-stat-card">
-                                <div class="report-stat-value" style="color: var(--accent-success)">${stats.jugador2.puntosDirectos - stats.jugador2.erroresPropios > 0 ? '+' : ''}${stats.jugador2.puntosDirectos - stats.jugador2.erroresPropios}</div>
+                                <div class="report-stat-value ${stats.jugador2.puntosDirectos - stats.jugador2.erroresPropios >= 0 ? 'good' : 'bad'}">${stats.jugador2.puntosDirectos - stats.jugador2.erroresPropios > 0 ? '+' : ''}${stats.jugador2.puntosDirectos - stats.jugador2.erroresPropios}</div>
                                 <div class="report-stat-label">G-P ${partido.jugador2_nombre}</div>
                                 <div class="report-stat-sublabel">${stats.jugador2.puntosDirectos} puntos · ${stats.jugador2.erroresPropios} errores</div>
                             </div>
                             <div class="report-stat-card">
-                                <div class="report-stat-value">${stats.general.puntosTotalesEquipo}</div>
+                                <div class="report-stat-value good">${stats.general.puntosTotalesEquipo}</div>
                                 <div class="report-stat-label">Puntos Totales Ganados</div>
                                 <div class="report-stat-sublabel">Marcador de equipo</div>
                             </div>
                             <div class="report-stat-card">
-                                <div class="report-stat-value text-accent">${stats.general.erroresRival}</div>
-                                <div class="report-stat-label">Errores del Rival</div>
-                                <div class="report-stat-sublabel">Puntos regalados</div>
+                                <div class="report-stat-value bad">${stats.general.puntosPerdidosEquipo}</div>
+                                <div class="report-stat-label">Puntos Totales Perdidos</div>
+                                <div class="report-stat-sublabel">Marcador del rival</div>
+                            </div>
+                            
+                            <div class="report-stat-card">
+                                <div class="report-stat-value good">${stats.jugador1.puntosDirectos + stats.jugador2.puntosDirectos}</div>
+                                <div class="report-stat-label">Aciertos Propios</div>
+                                <div class="report-stat-sublabel">Kills, aces, bloqueos</div>
                             </div>
                             <div class="report-stat-card">
-                                <div class="report-stat-value" style="color: var(--accent-primary)">${stats.jugador1.puntosDirectos + stats.jugador2.puntosDirectos}</div>
-                                <div class="report-stat-label">Puntos por Aciertos</div>
-                                <div class="report-stat-sublabel">Kills, aces, bloqueos</div>
+                                <div class="report-stat-value bad">${stats.general.aciertosRival}</div>
+                                <div class="report-stat-label">Aciertos del Rival</div>
+                                <div class="report-stat-sublabel">Puntos ganados por rival</div>
+                            </div>
+                            <div class="report-stat-card">
+                                <div class="report-stat-value bad">${stats.general.erroresPropiosEquipo}</div>
+                                <div class="report-stat-label">Errores Propios</div>
+                                <div class="report-stat-sublabel">J1 + J2 + Errores equipo</div>
+                            </div>
+                            <div class="report-stat-card">
+                                <div class="report-stat-value good">${stats.general.erroresRival}</div>
+                                <div class="report-stat-label">Errores del Rival</div>
+                                <div class="report-stat-sublabel">Puntos regalados</div>
                             </div>
                         </div>
                     </div>

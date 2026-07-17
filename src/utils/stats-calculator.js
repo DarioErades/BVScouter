@@ -248,25 +248,36 @@ function calcularStatsGenerales(acciones) {
         ? Math.round((puntosK1 / accionesK1.length) * 100)
         : 0;
 
-    // Calcular puntos totales del equipo sumando el máximo marcador local de cada set
+    // Calcular puntos totales y perdidos del equipo sumando marcadores de cada set
     const sets = [...new Set(acciones.map(a => a.set_numero))];
     let puntosTotalesEquipo = 0;
+    let puntosPerdidosEquipo = 0;
     sets.forEach(s => {
         const accionesSet = acciones.filter(a => a.set_numero === s);
+        if (accionesSet.length === 0) return;
         const lastAction = accionesSet[accionesSet.length - 1];
-        let maxScore = parseInt(lastAction.marcador_local) || 0;
-        if (lastAction.resultado === 'punto' && lastAction.tipo_accion !== 'fin_set') {
-            maxScore += 1;
+        
+        let maxLocal = parseInt(lastAction.marcador_local) || 0;
+        let maxRival = parseInt(lastAction.marcador_rival) || 0;
+        
+        // Si la última acción no fue fin_set pero dio punto o error, ajustamos el marcador final del set
+        if (lastAction.tipo_accion !== 'fin_set') {
+            if (lastAction.resultado === 'punto') maxLocal += 1;
+            else if (lastAction.resultado === 'error' || lastAction.resultado === 'bloqueado') maxRival += 1;
         }
-        puntosTotalesEquipo += maxScore;
+        puntosTotalesEquipo += maxLocal;
+        puntosPerdidosEquipo += maxRival;
     });
 
-    // Errores del rival = Puntos totales - Puntos directos propios
-    const puntosDirectosPropios = acciones.filter(a => 
-        a.resultado === 'punto' && 
-        ['ataque', 'saque', 'bloqueo'].includes(a.tipo_accion)
+    const aciertosRival = acciones.filter(a => a.tipo_accion === 'rival' && a.subtipo === 'Acierto Rival').length;
+    const erroresRival = acciones.filter(a => a.tipo_accion === 'rival' && a.subtipo === 'Error Rival').length;
+    
+    // Errores propios totales del equipo (J1 + J2 + generales)
+    // Contamos cualquier acción propia con resultado error/bloqueado
+    const erroresPropiosEquipo = acciones.filter(a => 
+        (a.resultado === 'error' || a.resultado === 'bloqueado') && 
+        ['ataque', 'saque', 'recepcion', 'defensa', 'colocacion', 'error_general'].includes(a.tipo_accion)
     ).length;
-    const erroresRival = Math.max(0, puntosTotalesEquipo - puntosDirectosPropios);
 
     return {
         totalAcciones,
@@ -274,7 +285,10 @@ function calcularStatsGenerales(acciones) {
         errores,
         sideOutGeneral,
         erroresRival,
-        puntosTotalesEquipo
+        aciertosRival,
+        puntosTotalesEquipo,
+        puntosPerdidosEquipo,
+        erroresPropiosEquipo
     };
 }
 

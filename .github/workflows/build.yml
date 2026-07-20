@@ -1,0 +1,61 @@
+name: Build y Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar para Windows
+        run: npm run make -- --platform=win32
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: BVScouter-Windows
+          path: out/make/**/*
+          retention-days: 30
+
+  release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Descargar artefactos de Windows
+        uses: actions/download-artifact@v4
+        with:
+          name: BVScouter-Windows
+          path: ./artifacts/windows
+
+      # crea el release en GitHub y sube los instaladores
+      - name: Crear Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: BVScouter ${{ github.ref_name }}
+          body: |
+            ## BVScouter ${{ github.ref_name }}
+
+            ### Descarga para Windows
+            - **BVScouter Setup.exe** → instalador (recomendado)
+            - **BVScouter-win32-x64.zip** → versión portable sin instalador
+          files: ./artifacts/windows/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

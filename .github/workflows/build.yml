@@ -29,6 +29,11 @@ jobs:
         env:
           npm_config_msvs_version: '2022'
 
+      - name: Recompilar módulos nativos para Electron
+        run: npx @electron/rebuild -f -w better-sqlite3
+        env:
+          npm_config_msvs_version: '2022'
+
       - name: Compilar para Windows
         run: npm run make -- --platform=win32
         env:

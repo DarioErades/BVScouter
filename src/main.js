@@ -3,9 +3,9 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import http from 'node:http';
 import fs from 'node:fs';
-import { initDatabase } from './database.js';
+import { initDatabase, initDatabasePista } from './database.js';
 import './ipc-handlers.js';
-
+import './ipc-handlers-pista.js';
 // pa manejar shortcuts en Windows al instalar/desinstalar
 if (started) {
   app.quit();
@@ -22,7 +22,7 @@ const createWindow = () => {
     height: 900,
     minWidth: 1400,
     minHeight: 900,
-    title: 'BVScouter - Scouting de voley playa',
+    title: 'BVScouter - Scouting de voleibol',
     autoHideMenuBar: true, // oculta el menú superior por defecto
     icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
@@ -79,27 +79,78 @@ const createWindow = () => {
 };
 
 import { pathToFileURL } from 'node:url';
+import { Readable } from 'node:stream';
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'local-video', privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, stream: true } }
+  { scheme: 'local-video', privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
 ]);
 
-app.whenReady().then(() => {
-  protocol.registerFileProtocol('local-video', (request, callback) => {
+app.whenReady().then(async () => {
+  protocol.handle('local-video', async (request) => {
     try {
       const parsedUrl = new URL(request.url);
       const filePath = parsedUrl.searchParams.get('path');
-      if (!filePath) {
-        return callback({ error: -6 });
+      if (!filePath || !fs.existsSync(filePath)) {
+        return new Response('File not found', { status: 404 });
       }
-      callback({ path: filePath });
+
+      const stat = fs.statSync(filePath);
+      const fileSize = stat.size;
+      const rangeHeader = request.headers.get('range') || request.headers.get('Range');
+
+      if (rangeHeader) {
+        const parts = rangeHeader.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        let end = parts[1] && parts[1].trim() !== '' ? parseInt(parts[1], 10) : fileSize - 1;
+
+        if (isNaN(start)) {
+          return new Response('Invalid Range', { status: 416 });
+        }
+
+        if (end >= fileSize) end = fileSize - 1;
+        if (start > end) {
+          return new Response('Requested Range Not Satisfiable', {
+            status: 416,
+            headers: { 'Content-Range': `bytes */${fileSize}` }
+          });
+        }
+
+        const chunkSize = (end - start) + 1;
+        const stream = fs.createReadStream(filePath, { start, end });
+
+        return new Response(Readable.toWeb(stream), {
+          status: 206,
+          statusText: 'Partial Content',
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Content-Length': chunkSize.toString(),
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      // Respuesta inicial 200 OK completa para carga de metadatos del vídeo
+      const stream = fs.createReadStream(filePath);
+      return new Response(Readable.toWeb(stream), {
+        status: 200,
+        statusText: 'OK',
+        headers: {
+          'Content-Type': 'video/mp4',
+          'Accept-Ranges': 'bytes',
+          'Content-Length': fileSize.toString(),
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     } catch (e) {
       console.error('Error handling local-video protocol:', e);
-      callback({ error: -2 });
+      return new Response('Internal error', { status: 500 });
     }
   });
 
-  initDatabase();
+  await initDatabase();
+  await initDatabasePista();
   createWindow();
 
   app.on('activate', () => {

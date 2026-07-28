@@ -2,6 +2,13 @@
 
 const STORAGE_KEY = 'bvscouter_prefs';
 
+let activeMode = null; // 'playa' | 'pista' | null
+
+export function setActiveThemeMode(mode) {
+    activeMode = mode;
+    applyPrefs();
+}
+
 export const ACCENT_PRESETS = [
     { name: 'Ámbar', value: '#f59e0b' },
     { name: 'Azul', value: '#3b82f6' },
@@ -15,8 +22,14 @@ export const ACCENT_PRESETS = [
 
 const DEFAULT_PREFS = {
     theme: 'dark',       // 'dark' | 'light'
-    accent: '#f59e0b',
+    accentPlaya: '#f59e0b', // Ámbar por defecto para Playa
+    accentPista: '#3b82f6', // Azul por defecto para Pista
     density: 'normal',   // 'normal' | 'compact'
+    fontScale: 'normal', // 'compact' | 'normal' | 'large'
+    reduceMotion: false,
+    videoSeekSeconds: 5,
+    videoDefaultSpeed: 1,
+    keybindings: {},
     keyAtaque: 'a',
     keyAcelerada: 'q'
 };
@@ -24,18 +37,38 @@ const DEFAULT_PREFS = {
 export function getPrefs() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return { ...DEFAULT_PREFS };
-        return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
+        let parsed = raw ? JSON.parse(raw) : {};
+        const res = {
+            ...DEFAULT_PREFS,
+            ...parsed,
+            accentPlaya: parsed.accentPlaya || parsed.accent || DEFAULT_PREFS.accentPlaya,
+            accentPista: parsed.accentPista || DEFAULT_PREFS.accentPista
+        };
+        res.accent = activeMode === 'pista' ? res.accentPista : res.accentPlaya;
+        return res;
     } catch (e) {
-        return { ...DEFAULT_PREFS };
+        const res = { ...DEFAULT_PREFS };
+        res.accent = activeMode === 'pista' ? res.accentPista : res.accentPlaya;
+        return res;
     }
 }
 
-export function savePrefs(prefs) {
-    const merged = { ...getPrefs(), ...prefs };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    applyPrefs(merged);
-    return merged;
+export function savePrefs(newPrefs) {
+    const current = getPrefs();
+    const toSave = { ...current, ...newPrefs };
+    if (newPrefs.accent !== undefined) {
+        if (activeMode === 'pista') {
+            toSave.accentPista = newPrefs.accent;
+        } else {
+            toSave.accentPlaya = newPrefs.accent;
+            toSave.accent = newPrefs.accent; // fallback backward compat
+        }
+    }
+    toSave.accent = activeMode === 'pista' ? toSave.accentPista : toSave.accentPlaya;
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    applyPrefs(toSave);
+    return toSave;
 }
 
 function hexToRgb(hex) {
@@ -64,9 +97,14 @@ export function applyPrefs(prefs = getPrefs()) {
     // modo claro/oscuro
     root.setAttribute('data-theme', prefs.theme);
     root.setAttribute('data-density', prefs.density);
+    root.setAttribute('data-font-scale', prefs.fontScale || 'normal');
+    root.setAttribute('data-reduce-motion', prefs.reduceMotion ? 'true' : 'false');
 
-    // color de acento y derivados
-    const accent = prefs.accent || DEFAULT_PREFS.accent;
+    // color de acento y derivados según modalidad
+    const accent = activeMode === 'pista' 
+        ? (prefs.accentPista || DEFAULT_PREFS.accentPista) 
+        : (prefs.accentPlaya || prefs.accent || DEFAULT_PREFS.accentPlaya);
+    
     const { r, g, b } = hexToRgb(accent);
     root.style.setProperty('--accent-primary', accent);
     root.style.setProperty('--accent-primary-hover', shade(accent, -0.15));

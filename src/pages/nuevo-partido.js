@@ -97,6 +97,7 @@ export function registerNuevoPartido() {
                                     <button type="button" class="btn btn-secondary" id="btn-seleccionar-video">📁 Seleccionar Archivo</button>
                                     <span id="video-file-name" class="text-muted" style="font-size: 13px;">Ningún archivo seleccionado</span>
                                 </div>
+                                <label class="setting-hint" style="display:block; margin-top:10px; cursor:pointer;"><input type="checkbox" id="input-detect-whistles"> Analizar localmente los silbatos para navegar con los botones laterales del ratón</label>
                             </div>
 
                             <div class="form-group">
@@ -177,6 +178,15 @@ export function registerNuevoPartido() {
             };
 
             const partidoId = await window.api.createPartido(data);
+            if (tipo === 'local' && videoUrl && document.getElementById('input-detect-whistles')?.checked) {
+                showToast('Analizando silbatos localmente… puede tardar unos minutos', 'info');
+                try {
+                    const whistles = await window.api.analyzeWhistles(videoUrl);
+                    showToast(`${whistles.length} silbatos detectados. Ya puedes usar Mouse Atrás/Adelante.`, 'success');
+                } catch (error) {
+                    showToast(`No se pudo analizar el audio: ${error.message}`, 'warning');
+                }
+            }
             showToast('Partido creado correctamente', 'success');
 
             if (startScouting) {

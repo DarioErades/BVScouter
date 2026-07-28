@@ -5,11 +5,67 @@ import { showToast, formatTimestamp, getYoutubeId } from '../utils/helpers.js';
 import { TIPOS_ACCION, SUBTIPOS, RESULTADOS, COMPLEJOS, SHORTCUTS } from '../utils/constants.js';
 import { calcularStats } from '../utils/stats-calculator.js';
 import { getPrefs } from '../utils/theme.js';
+import { actionForKey, keyFor, subtypeForKey } from '../utils/keybindings.js';
+import { applyScoreDelta, scoreDeltaForResult } from '../utils/scoring.js';
 
 let scoutingState = null;
 let keyHandler = null;
 let processSubtypeKey = null;
 let speedHoldHandler = null;
+let ytCurrentTime = 0;
+let ytState = -1;
+let ytMessageListener = null;
+let ytPollInterval = null;
+let whistleTimestamps = [];
+let mouseWhistleHandler = null;
+
+function setupYoutubeTracking() {
+    ytCurrentTime = 0;
+    ytState = -1;
+
+    if (ytMessageListener) {
+        window.removeEventListener('message', ytMessageListener);
+    }
+    if (ytPollInterval) {
+        clearInterval(ytPollInterval);
+    }
+
+    ytMessageListener = (event) => {
+        let data = event.data;
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data);
+            } catch (e) {
+                return;
+            }
+        }
+        if (!data || typeof data !== 'object') return;
+
+        if (data.info && typeof data.info.currentTime === 'number') {
+            ytCurrentTime = data.info.currentTime;
+        } else if (typeof data.currentTime === 'number') {
+            ytCurrentTime = data.currentTime;
+        }
+
+        if (data.info && typeof data.info.playerState === 'number') {
+            ytState = data.info.playerState;
+        }
+    };
+
+    window.addEventListener('message', ytMessageListener);
+
+    ytPollInterval = setInterval(() => {
+        const iframe = document.getElementById('yt-iframe-player');
+        if (iframe && iframe.contentWindow) {
+            try {
+                iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*');
+                iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
+            } catch (e) {
+                // ignore
+            }
+        }
+    }, 250);
+}
 
 export function registerScouting() {
     router.register('scouting', async (container, params) => {
@@ -34,7 +90,7 @@ export function registerScouting() {
             setActual: 1,
             marcadorLocal: 0,
             marcadorRival: 0,
-            videoSpeed: 1,
+            videoSpeed: getPrefs().videoDefaultSpeed || 1,
             wizardModalAbierto: false,
             wizardActionType: null,
             attackWizard: { step: 1, type: null, dir: null, result: null },
@@ -63,8 +119,34 @@ export function registerScouting() {
         renderScoutingUI(container);
         setupVideoPlayer(container);
         setupKeyboardShortcuts(container);
+        setupWhistleMouseNavigation();
         refreshTimelineAndStats();
     });
+}
+
+async function setupWhistleMouseNavigation(videoPath = scoutingState.partido.video_url) {
+    whistleTimestamps = [];
+    if (!videoPath) return;
+    try { whistleTimestamps = await window.api.getWhistles(videoPath); } catch { return; }
+    if (!whistleTimestamps.length) return;
+    mouseWhistleHandler = (event) => {
+        if ((event.button !== 3 && event.button !== 4) || event.target.closest('input, textarea, select')) return;
+        const mouseKey = event.button === 3 ? 'MouseBack' : 'MouseForward';
+        const previous = keyFor('playa', 'whistle-previous') === mouseKey;
+        const next = keyFor('playa', 'whistle-next') === mouseKey;
+        if (!previous && !next) return;
+        const video = document.getElementById('local-video');
+        if (!video) return;
+        const now = video.currentTime || 0;
+        const target = next
+            ? whistleTimestamps.find(time => time > now + 0.08)
+            : [...whistleTimestamps].reverse().find(time => time < now - 0.08);
+        event.preventDefault();
+        if (target === undefined) return;
+        video.currentTime = target;
+        showToast(`Silbato: ${formatTimestamp(target)}`, 'info');
+    };
+    document.addEventListener('mousedown', mouseWhistleHandler);
 }
 
 function renderScoutingUI(container) {
@@ -75,7 +157,7 @@ function renderScoutingUI(container) {
     const hasVideo = partido.video_tipo && partido.video_url;
 
     container.innerHTML = `
-        <div class="scouting-layout ${!hasVideo ? 'no-video' : ''}">
+        <div class="scouting-layout ${!hasVideo ? 'no-video' : ''} ${partido.video_tipo === 'youtube' ? 'youtube-choice-active' : ''}">
             <!-- cabecera del partido -->
             <div class="scouting-header">
                 <div class="match-info">
@@ -631,14 +713,27 @@ function renderVideoPlayer() {
     }
 
     if (partido.video_tipo === 'youtube') {
+        const ytId = getYoutubeId(partido.video_url);
         return `
-            <div class="video-placeholder" id="yt-download-placeholder">
-                <div class="video-placeholder-icon">⬇️</div>
-                <p id="yt-status-msg">Preparando vídeo de YouTube...</p>
-                <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Se descarga una vez y se cachea localmente</p>
+            <div class="video-placeholder" id="yt-choice-container" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:20px; text-align:center;">
+                <div style="font-size: 32px;">📺</div>
+                <div style="font-weight: bold; color: white; font-size: 16px;">Vídeo de YouTube Detectado</div>
+                <p style="font-size: 12px; color: var(--text-muted); max-width: 320px;">
+                    ¿Cómo prefieres reproducir este vídeo para la sesión de scouting?
+                </p>
+                <div style="display:flex; gap:10px; margin-top:8px; flex-wrap:wrap; justify-content:center;">
+                    <button id="btn-yt-iframe" class="btn btn-primary" style="padding:8px 16px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                        🔴 Ver con Iframe (Streaming Directo)
+                    </button>
+                    <button id="btn-yt-download" class="btn btn-secondary" style="padding:8px 16px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                        ⬇️ Descargar y Ver Localmente (Offline)
+                    </button>
+                </div>
                 <div id="yt-progress-bar-wrap" style="width:80%;height:4px;background:rgba(255,255,255,0.15);border-radius:4px;margin-top:12px;overflow:hidden;display:none;">
                     <div id="yt-progress-bar-inner" style="height:100%;width:0%;background:var(--accent);transition:width 0.3s;"></div>
                 </div>
+                <p id="yt-status-msg" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display:none;"></p>
+                <div id="whistle-progress-wrap" style="width:80%; height:5px; background:rgba(255,255,255,.15); border-radius:4px; overflow:hidden; display:none;"><div id="whistle-progress-bar" style="width:0%; height:100%; background:var(--accent-primary); transition:width .2s;"></div></div>
             </div>
         `;
     }
@@ -667,9 +762,32 @@ function renderVideoPlayer() {
 }
 
 function setupVideoPlayer(container) {
-    const ytPlaceholder = document.getElementById('yt-download-placeholder');
-    if (ytPlaceholder) {
-        setupYoutubeDownload(container);
+    const btnIframe = document.getElementById('btn-yt-iframe');
+    const btnDownload = document.getElementById('btn-yt-download');
+
+    if (btnIframe && btnDownload) {
+        btnIframe.addEventListener('click', () => {
+            const ytId = getYoutubeId(scoutingState.partido.video_url);
+            const videoContainer = document.getElementById('video-container');
+            if (videoContainer && ytId) {
+                document.querySelector('.scouting-layout')?.classList.remove('youtube-choice-active');
+                videoContainer.innerHTML = `
+                    <div style="position:relative; width:100%; height:100%; aspect-ratio:16/9; background:#000;">
+                        <iframe id="yt-iframe-player" src="https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
+                    </div>
+                `;
+                showToast('Reproduciendo Streaming directo de YouTube', 'success');
+                setupYoutubeTracking();
+            } else {
+                showToast('URL de YouTube no válida', 'error');
+            }
+        });
+
+        btnDownload.addEventListener('click', () => {
+            document.querySelector('.scouting-layout')?.classList.remove('youtube-choice-active');
+            showToast('Preparando vídeo y análisis local de silbatos…', 'info');
+            setupYoutubeDownload(container);
+        });
         return;
     }
 
@@ -715,11 +833,10 @@ function setupVideoPlayer(container) {
     const speedUp = document.getElementById('btn-speed-up');
     if (speedUp) speedUp.addEventListener('click', () => changeVideoSpeed(0.25));
 
-    // evitamos que el video capture las flechas cuando tiene foco (lo maneja el keyHandler global)
     video.addEventListener('keydown', (e) => {
-        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
-            e.preventDefault();
-        }
+        if (e.key === keyFor('playa', 'video-backward')) { e.preventDefault(); seekVideo(-(getPrefs().videoSeekSeconds || 5)); }
+        else if (e.key === keyFor('playa', 'video-forward')) { e.preventDefault(); seekVideo(getPrefs().videoSeekSeconds || 5); }
+        else if (e.key === keyFor('playa', 'video-play')) { e.preventDefault(); toggleVideoPlayPause(); }
     });
 }
 
@@ -727,22 +844,47 @@ async function setupYoutubeDownload(container) {
     const statusMsg = document.getElementById('yt-status-msg');
     const progressWrap = document.getElementById('yt-progress-bar-wrap');
     const progressBar = document.getElementById('yt-progress-bar-inner');
+    const whistleProgressWrap = document.getElementById('whistle-progress-wrap');
+    const whistleProgressBar = document.getElementById('whistle-progress-bar');
     const videoContainer = document.getElementById('video-container');
 
-    if (statusMsg) statusMsg.textContent = 'Descargando vídeo... (puede tardar unos minutos)';
+    if (statusMsg) { statusMsg.textContent = 'Iniciando descarga del vídeo...'; statusMsg.style.display = 'block'; }
     if (progressWrap) progressWrap.style.display = 'block';
+    if (progressBar) progressBar.style.width = '0%';
 
-    // animacion de progreso indeterminada mientras descarga
-    let fakeProgress = 0;
-    const fakeInterval = setInterval(() => {
-        fakeProgress = Math.min(fakeProgress + Math.random() * 2, 85);
-        if (progressBar) progressBar.style.width = fakeProgress + '%';
-    }, 400);
+    if (window.api?.onYtProgress) {
+        window.api.onYtProgress((prog) => {
+            if (progressBar && prog.percent !== undefined) {
+                progressBar.style.width = `${Math.min(100, Math.max(0, prog.percent))}%`;
+            }
+            if (statusMsg && prog.text) {
+                statusMsg.textContent = `Descargando: ${prog.text}`;
+            }
+        });
+    }
 
     try {
         const localUrl = await window.api.resolveYoutube(scoutingState.partido.video_url);
-        clearInterval(fakeInterval);
         if (progressBar) progressBar.style.width = '100%';
+        if (statusMsg) statusMsg.textContent = 'Analizando silbatos localmente…';
+        if (whistleProgressWrap) whistleProgressWrap.style.display = 'block';
+        if (!window.api.analyzeWhistles || !window.api.onWhistleProgress) {
+            if (statusMsg) statusMsg.textContent = '⚠️ Reinicia BVScouter para activar el análisis local de silbatos.';
+            showToast('Reinicia la aplicación para activar el análisis de silbatos', 'warning');
+        } else {
+        window.api.onWhistleProgress?.((progress) => {
+            if (whistleProgressBar) whistleProgressBar.style.width = `${progress.percent || 0}%`;
+        });
+        try {
+            const whistles = await window.api.analyzeWhistles(localUrl);
+            if (statusMsg) statusMsg.textContent = `✅ Análisis terminado: ${whistles.length} silbatos cargados`;
+            if (whistleProgressBar) whistleProgressBar.style.width = '100%';
+            showToast(`Análisis terminado: ${whistles.length} silbatos cargados`, 'success');
+        } catch (error) {
+            console.warn('No se pudo analizar los silbatos:', error);
+            if (statusMsg) statusMsg.textContent = 'No se pudieron analizar los silbatos';
+        }
+        }
 
         // sustituimos el placeholder por el video nativo
         if (videoContainer) {
@@ -766,9 +908,9 @@ async function setupYoutubeDownload(container) {
                 </div>
             `;
             setupVideoPlayer(videoContainer);
+            if (window.api.analyzeWhistles) setupWhistleMouseNavigation(localUrl);
         }
     } catch (err) {
-        clearInterval(fakeInterval);
         if (statusMsg) statusMsg.textContent = `Error al descargar: ${err.message}`;
         if (progressBar) { progressBar.style.width = '0%'; progressBar.style.background = '#f44'; }
     }
@@ -903,6 +1045,8 @@ function setupActionPanelEvents(container) {
 
     router.registerDestroy(() => {
         limpiarShortcuts();
+        if (mouseWhistleHandler) document.removeEventListener('mousedown', mouseWhistleHandler);
+        mouseWhistleHandler = null;
     });
 }
 
@@ -922,7 +1066,7 @@ function setupKeyboardShortcuts(container) {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
 
         const key = e.key;
-        const shortcut = SHORTCUTS[key];
+        const shortcut = actionForKey('playa', key);
 
         if (!shortcut) return;
 
@@ -932,10 +1076,10 @@ function setupKeyboardShortcuts(container) {
             return;
         }
 
-        // si hay una accion activa y la tecla es un subtipo de esa accion, la dejamos para processSubtypeKey
-        if (scoutingState.tipoAccion && (shortcut.action === 'videoSpeed3x' || shortcut.action === 'videoReverse')) {
-            const subs = (SUBTIPOS[scoutingState.tipoAccion] || []);
-            if (subs.some(s => s.key === key)) return;
+        // Un subtipo activo tiene prioridad sobre cualquier atajo global.
+        if (scoutingState.tipoAccion) {
+            const sub = subtypeForKey('playa', scoutingState.tipoAccion, key);
+            if (sub) return;
         }
 
         e.preventDefault();
@@ -955,7 +1099,12 @@ function setupKeyboardShortcuts(container) {
                 selectActionType(shortcut.value);
                 break;
 
+            case 'resultPunto':
             case 'markLastActionAsPoint':
+                if (scoutingState.tipoAccion) {
+                    registrarAccion('punto');
+                    break;
+                }
                 if (scoutingState.enterTimer) {
                     // Double Enter
                     clearTimeout(scoutingState.enterTimer);
@@ -994,7 +1143,12 @@ function setupKeyboardShortcuts(container) {
                 }
                 break;
                 
+            case 'resultError':
             case 'markLastActionAsError':
+                if (scoutingState.tipoAccion) {
+                    registrarAccion('error');
+                    break;
+                }
                 if (scoutingState.backspaceTimer) {
                     // Double Backspace -> Error Rival
                     clearTimeout(scoutingState.backspaceTimer);
@@ -1061,6 +1215,24 @@ function setupKeyboardShortcuts(container) {
                 }
                 break;
 
+            case 'resultBloqueado':
+                if (scoutingState.tipoAccion) {
+                    registrarAccion('bloqueado');
+                }
+                break;
+
+            case 'resultPositiva':
+                if (scoutingState.tipoAccion) {
+                    registrarAccion('positiva');
+                }
+                break;
+
+            case 'resultNegativa':
+                if (scoutingState.tipoAccion) {
+                    registrarAccion('negativa');
+                }
+                break;
+
             case 'undo':
                 deshacerUltimaAccion();
                 break;
@@ -1070,10 +1242,10 @@ function setupKeyboardShortcuts(container) {
                 toggleVideoPlayPause();
                 break;
             case 'videoForward':
-                seekVideo(5);
+                seekVideo(getPrefs().videoSeekSeconds || 5);
                 break;
             case 'videoBackward':
-                seekVideo(-5);
+                seekVideo(-(getPrefs().videoSeekSeconds || 5));
                 break;
             case 'videoFrameForward':
                 seekVideo(1 / 30);
@@ -1132,7 +1304,7 @@ function setupKeyboardShortcuts(container) {
         if (scoutingState.tipoAccion) {
             const subs = SUBTIPOS[scoutingState.tipoAccion];
             if (subs) {
-                const sub = subs.find(s => s.key === e.key);
+                const sub = subtypeForKey('playa', scoutingState.tipoAccion, e.key);
                 if (sub) {
                     e.preventDefault();
                     scoutingState.subtipo = sub.label;
@@ -1149,30 +1321,43 @@ function setupKeyboardShortcuts(container) {
     // P mantenida: 3x mientras se pulsa, vuelve a normal al soltar
     speedHoldHandler = {
         down: (e) => {
-            if (e.key !== 'p' && e.key !== 'P') return;
+            if (e.key !== keyFor('playa', 'video-speed-3x')) return;
             if (e.repeat) return; // ignoramos el autorepeat del SO
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             if (router.getCurrentPage() !== 'scouting') return;
             if (scoutingState.tipoAccion) {
-                const subs = SUBTIPOS[scoutingState.tipoAccion] || [];
-                if (subs.some(s => s.key === 'p')) return;
+                if (subtypeForKey('playa', scoutingState.tipoAccion, e.key)) return;
             }
             const video = document.getElementById('local-video');
-            if (!video) return;
-            // aplicamos 3x sin tocar el estado guardado
-            video.playbackRate = 3;
-            const indicator = document.getElementById('speed-indicator');
-            if (indicator) indicator.textContent = '3x';
+            if (video) {
+                video.playbackRate = 3;
+                const indicator = document.getElementById('speed-indicator');
+                if (indicator) indicator.textContent = '3x';
+                return;
+            }
+            const iframe = document.getElementById('yt-iframe-player');
+            if (iframe) {
+                iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [3] }), '*');
+                const indicator = document.getElementById('speed-indicator');
+                if (indicator) indicator.textContent = '3x';
+            }
         },
         up: (e) => {
-            if (e.key !== 'p' && e.key !== 'P') return;
+            if (e.key !== keyFor('playa', 'video-speed-3x')) return;
             if (router.getCurrentPage() !== 'scouting') return;
             const video = document.getElementById('local-video');
-            if (!video) return;
-            // restauramos la velocidad guardada en el estado
-            video.playbackRate = scoutingState.videoSpeed;
-            const indicator = document.getElementById('speed-indicator');
-            if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
+            if (video) {
+                video.playbackRate = scoutingState.videoSpeed;
+                const indicator = document.getElementById('speed-indicator');
+                if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
+                return;
+            }
+            const iframe = document.getElementById('yt-iframe-player');
+            if (iframe) {
+                iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [scoutingState.videoSpeed] }), '*');
+                const indicator = document.getElementById('speed-indicator');
+                if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
+            }
         }
     };
     document.addEventListener('keydown', speedHoldHandler.down);
@@ -1192,6 +1377,14 @@ function limpiarShortcuts() {
         document.removeEventListener('keydown', speedHoldHandler.down);
         document.removeEventListener('keyup',   speedHoldHandler.up);
         speedHoldHandler = null;
+    }
+    if (ytMessageListener) {
+        window.removeEventListener('message', ytMessageListener);
+        ytMessageListener = null;
+    }
+    if (ytPollInterval) {
+        clearInterval(ytPollInterval);
+        ytPollInterval = null;
     }
     // paramos la reversa si estaba activa
     if (scoutingState && scoutingState.reverseInterval) {
@@ -1248,13 +1441,12 @@ function closeWizardModal() {
 }
 
 const getAttackTypes = () => {
-    const prefs = getPrefs();
     return [
-        { label: 'Ataque', key: prefs.keyAtaque || 'a' },
-        { label: 'Toque', key: 't' },
-        { label: 'Acelerada', key: prefs.keyAcelerada || 'q' },
-        { label: 'Rejuego', key: 'r' },
-        { label: 'Lucha', key: 'l' }
+        { label: 'Ataque', key: keyFor('playa', 'wizard-attack') },
+        { label: 'Toque', key: keyFor('playa', 'wizard-touch') },
+        { label: 'Acelerada', key: keyFor('playa', 'wizard-accelerated') },
+        { label: 'Rejuego', key: keyFor('playa', 'wizard-replay') },
+        { label: 'Lucha', key: keyFor('playa', 'wizard-fight') }
     ];
 };
 const ATTACK_DIRS_FULL = [
@@ -1430,13 +1622,13 @@ function handleWizardKey(key) {
 
 // control del marcador
 function updateScore(team, delta) {
-    if (team === 'local') {
-        scoutingState.marcadorLocal = Math.max(0, scoutingState.marcadorLocal + delta);
-        if (delta > 0) setServer('local');
-    } else {
-        scoutingState.marcadorRival = Math.max(0, scoutingState.marcadorRival + delta);
-        if (delta > 0) setServer('rival');
-    }
+    const score = applyScoreDelta(
+        { local: scoutingState.marcadorLocal, rival: scoutingState.marcadorRival },
+        team === 'local' ? { local: delta, rival: 0 } : { local: 0, rival: delta }
+    );
+    scoutingState.marcadorLocal = score.local;
+    scoutingState.marcadorRival = score.rival;
+    if (delta > 0) setServer(team);
     updateScoreUI();
 }
 
@@ -1457,13 +1649,51 @@ function toggleVideoPlayPause() {
     const video = document.getElementById('local-video');
     if (video) {
         video.paused ? video.play() : video.pause();
+        return;
+    }
+    const iframe = document.getElementById('yt-iframe-player');
+    if (iframe) {
+        if (ytState === 1) { // playing
+            iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*');
+        } else {
+            iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+        }
     }
 }
 
 function seekVideo(seconds) {
     const video = document.getElementById('local-video');
     if (video) {
-        video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
+        const current = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+        const dur = (Number.isFinite(video.duration) && video.duration > 0) ? video.duration : null;
+        let target = current + seconds;
+        if (dur !== null) {
+            target = Math.min(dur, target);
+        }
+        video.currentTime = Math.max(0, target);
+        return;
+    }
+    const iframe = document.getElementById('yt-iframe-player');
+    if (iframe) {
+        const target = ytCurrentTime + seconds;
+        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [Math.max(0, target), true] }), '*');
+    }
+}
+
+function seekVideoTo(seconds) {
+    const iframe = document.getElementById('yt-iframe-player');
+    if (iframe) {
+        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seconds, true] }), '*');
+        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+        showToast(`Saltando a ${formatTimestamp(seconds)} en YouTube Stream`, 'info');
+        return;
+    }
+
+    const video = document.getElementById('local-video');
+    if (video && Number.isFinite(seconds)) {
+        video.currentTime = Math.max(0, seconds);
+        video.play().catch(() => {});
+        showToast(`Saltando a ${formatTimestamp(seconds)}`, 'info');
     }
 }
 
@@ -1476,6 +1706,15 @@ function changeVideoSpeed(delta) {
         const indicator = document.getElementById('speed-indicator');
         if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
         showToast(`Velocidad: ${scoutingState.videoSpeed}x`, 'info');
+        return;
+    }
+    const iframe = document.getElementById('yt-iframe-player');
+    if (iframe) {
+        scoutingState.videoSpeed = Math.max(0.25, Math.min(4, scoutingState.videoSpeed + delta));
+        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [scoutingState.videoSpeed] }), '*');
+        const indicator = document.getElementById('speed-indicator');
+        if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
+        showToast(`Velocidad: ${scoutingState.videoSpeed}x`, 'info');
     }
 }
 
@@ -1485,6 +1724,15 @@ function setVideoSpeed(speed) {
         pararReversa();
         scoutingState.videoSpeed = speed;
         video.playbackRate = speed;
+        const indicator = document.getElementById('speed-indicator');
+        if (indicator) indicator.textContent = `${speed}x`;
+        showToast(`Velocidad: ${speed}x`, 'info');
+        return;
+    }
+    const iframe = document.getElementById('yt-iframe-player');
+    if (iframe) {
+        scoutingState.videoSpeed = speed;
+        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [speed] }), '*');
         const indicator = document.getElementById('speed-indicator');
         if (indicator) indicator.textContent = `${speed}x`;
         showToast(`Velocidad: ${speed}x`, 'info');
@@ -1530,6 +1778,13 @@ function toggleVideoReverse() {
 function getVideoTimestamp() {
     const video = document.getElementById('local-video');
     if (video) return video.currentTime;
+    const iframe = document.getElementById('yt-iframe-player');
+    if (iframe) {
+        if (!ytPollInterval) {
+            setupYoutubeTracking();
+        }
+        return ytCurrentTime || 0;
+    }
     if (window.getCurrentVideoTime) return window.getCurrentVideoTime();
     return 0;
 }
@@ -1618,11 +1873,12 @@ async function registrarAccion(forceResult = null) {
     scoutingState.acciones.push(data);
 
     // auto-sumar punto al equipo correcto
-    if (res === 'punto') {
-        updateScore('local', 1); // Nuestro jugador hace punto
+    const scoreDelta = scoreDeltaForResult(res);
+    if (scoreDelta.local) {
+        updateScore('local', scoreDelta.local); // Nuestro jugador hace punto
         guardarPartido(); // auto save score
-    } else if (res === 'error' || res === 'bloqueado') {
-        updateScore('rival', 1); // Nuestro jugador falla o es bloqueado, punto para el rival
+    } else if (scoreDelta.rival) {
+        updateScore('rival', scoreDelta.rival); // Nuestro jugador falla o es bloqueado, punto para el rival
         guardarPartido(); // auto save score
     }
 
@@ -1735,6 +1991,17 @@ function refreshTimelineAndStats() {
             }
             scoutingState.acciones = scoutingState.acciones.filter(a => !ids.includes(a.id));
             refreshTimelineAndStats();
+        });
+    });
+
+    // vincular clics en minuto/timestamp para ir a ese segundo en el vídeo
+    timelineItems.querySelectorAll('.timeline-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            const ts = parseFloat(item.dataset.timestamp);
+            if (Number.isFinite(ts)) {
+                seekVideoTo(ts);
+            }
         });
     });
 
@@ -1851,7 +2118,7 @@ function renderTimeline() {
             
             const labelComplejo = a.complejo || 'K1';
             return `
-                <div class="timeline-item ${resultado}">
+                <div class="timeline-item ${resultado}" data-timestamp="${a.video_timestamp || 0}" style="cursor:pointer;" title="Haz clic para saltar al minuto ${formatTimestamp(a.video_timestamp)} en el vídeo">
                     <span class="timestamp">${formatTimestamp(a.video_timestamp)}</span>
                     <span class="complex-badge">${labelComplejo}</span>
                     <strong>${playerTag}</strong>

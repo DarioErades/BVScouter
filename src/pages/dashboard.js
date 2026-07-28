@@ -1,7 +1,7 @@
 // pagina del dashboard
 
 import { router } from '../router.js';
-import { formatDate } from '../utils/helpers.js';
+import { escapeHtml, formatDate } from '../utils/helpers.js';
 
 let currentFolderId = null;
 let allCarpetas = [];
@@ -10,6 +10,12 @@ let searchQuery = '';
 
 export function registerDashboard() {
     router.register('dashboard', async (container) => {
+        container.innerHTML = `
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Cargando partidos de Voley Playa...</div>
+            </div>
+        `;
         allPartidos = await window.api.getPartidos();
         allCarpetas = await window.api.getCarpetas();
         
@@ -66,7 +72,7 @@ function renderDashboard(container) {
                             <div class="carpeta-item card-hover" data-id="${c.id}" style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;">
                                 <div class="flex items-center gap-12" style="pointer-events: none;">
                                     <span style="font-size: 1.5rem;">📁</span>
-                                    <span class="font-medium text-white">${c.nombre}</span>
+                                    <span class="font-medium text-white">${escapeHtml(c.nombre)}</span>
                                 </div>
                                 <button class="btn-eliminar-carpeta" data-id="${c.id}" style="background: transparent; border: none; color: #ef4444; cursor: pointer; opacity: 0.5; padding: 4px;">🗑️</button>
                             </div>
@@ -88,17 +94,17 @@ function renderDashboard(container) {
                                     <span style="font-size: 2rem;">🏐</span>
                                     <div>
                                         <div class="font-semibold text-white" style="font-size: 1rem; margin-bottom: 4px;">
-                                            ${p.jugador1_nombre} / ${p.jugador2_nombre}
+                                            ${escapeHtml(p.jugador1_nombre)} / ${escapeHtml(p.jugador2_nombre)}
                                             ${p.finalizado ? `<span style="margin-left: 8px; font-size: 0.7rem; padding: 3px 8px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 999px; vertical-align: middle;">✅ FINALIZADO</span>` : `<span style="margin-left: 8px; font-size: 0.7rem; padding: 3px 8px; background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 999px; vertical-align: middle;">⏳ EN CURSO</span>`}
                                         </div>
                                         <div style="font-size: 0.85rem; color: #94a3b8;">
-                                            📅 ${formatDate(p.fecha)} ${p.torneo ? `| 🏆 ${p.torneo}` : ''} ${p.fase ? `| 🏷️ ${p.fase}` : ''}
+                                            📅 ${formatDate(p.fecha)} ${p.torneo ? `| 🏆 ${escapeHtml(p.torneo)}` : ''} ${p.fase ? `| 🏷️ ${escapeHtml(p.fase)}` : ''}
                                         </div>
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-12" style="display: flex; align-items: center; gap: 16px;">
                                     <span class="badge badge-info" style="font-family: monospace; font-size: 0.9rem; padding: 6px 12px; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px;">
-                                        Resultado: ${p.resultado || '-'}
+                                        Resultado: ${escapeHtml(p.resultado || '-')}
                                     </span>
                                     <div class="flex gap-8" style="display: flex; gap: 8px;">
                                         <button class="btn btn-sm btn-secondary btn-scouting" data-id="${p.id}">📋 Scouting</button>

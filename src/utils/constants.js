@@ -60,11 +60,13 @@ export const SUBTIPOS = {
 };
 
 export const RESULTADOS = {
-    punto: { label: 'Punto', icon: '✓', class: 'punto' },
-    error: { label: 'Error', icon: '✗', class: 'error' },
-    continuidad: { label: 'Continuidad', icon: '↺', class: 'continuidad' },
-    bloqueado: { label: 'Bloqueado', icon: '🛡️', class: 'bloqueado' },
-    neutra: { label: 'Neutra', icon: '—', class: 'continuidad' }
+    punto:       { label: 'Punto',     icon: '#', class: 'punto',     shortcut: 'Enter' },
+    positiva:    { label: 'Positiva',  icon: '+', class: 'positiva',  shortcut: '+' },
+    negativa:    { label: 'Negativa',  icon: '!', class: 'negativa',  shortcut: '!' },
+    pobre:       { label: 'Pobre',     icon: '-', class: 'pobre',     shortcut: '-' },
+    bloqueado:   { label: 'Bloqueado', icon: '/', class: 'bloqueado', shortcut: '7' },
+    error:       { label: 'Error',     icon: '=', class: 'error',     shortcut: 'Backspace' },
+    continuidad: { label: 'Continuidad', icon: '↺', class: 'continuidad', shortcut: '' }
 };
 
 export const COMPLEJOS = {
@@ -86,9 +88,12 @@ export const SHORTCUTS = {
     'b': { action: 'selectAction', value: 'bloqueo' },
     'd': { action: 'selectAction', value: 'defensa' },
 
-    // resultados de la ultima accion
-    'Enter': { action: 'markLastActionAsPoint' },
-    'Backspace': { action: 'markLastActionAsError' },
+    // resultados de la accion
+    'Enter': { action: 'resultPunto' },
+    'Backspace': { action: 'resultError' },
+    '7': { action: 'resultBloqueado' },
+    '+': { action: 'resultPositiva' },
+    '!': { action: 'resultNegativa' },
 
     // deshacer
     'z': { action: 'undo' },

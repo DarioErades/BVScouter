@@ -6,7 +6,9 @@ export function showToast(message, type = 'info') {
     toast.className = `toast toast-${type}`;
 
     const icons = { success: '✓', error: '✗', info: 'ℹ' };
-    toast.innerHTML = `<span>${icons[type] || 'ℹ'}</span> ${message}`;
+    const icon = document.createElement('span');
+    icon.textContent = icons[type] || 'ℹ';
+    toast.append(icon, document.createTextNode(` ${message}`));
 
     container.appendChild(toast);
 
@@ -14,6 +16,17 @@ export function showToast(message, type = 'info') {
         toast.style.animation = 'toastOut 0.3s ease forwards';
         setTimeout(() => toast.remove(), 300);
     }, 3000);
+}
+
+// Para cualquier dato que vaya a interpolarse en una plantilla HTML. Los textos
+// introducidos por usuarios nunca deben convertirse en marcado ejecutable.
+export function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 export function formatTimestamp(seconds) {

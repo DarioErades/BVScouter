@@ -3,6 +3,7 @@
 import { router } from '../router.js';
 import { showToast } from '../utils/helpers.js';
 import { getPrefs, savePrefs, applyPrefs, ACCENT_PRESETS } from '../utils/theme.js';
+import { renderKeybindings, bindKeybindings } from '../utils/settings-ui.js';
 
 export function registerAjustes() {
     router.register('ajustes', async (container) => {
@@ -61,6 +62,24 @@ function renderPage(container) {
                         <button class="density-opt ${prefs.density === 'compact' ? 'active' : ''}" data-density="compact">Compacta</button>
                     </div>
                 </div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Tamaño de texto</div><div class="setting-hint">Mejora la lectura en pantallas pequeñas o a distancia</div></div>
+                    <div class="theme-toggle-group">
+                        <button class="font-opt ${prefs.fontScale === 'compact' ? 'active' : ''}" data-font="compact">Pequeño</button>
+                        <button class="font-opt ${(prefs.fontScale || 'normal') === 'normal' ? 'active' : ''}" data-font="normal">Normal</button>
+                        <button class="font-opt ${prefs.fontScale === 'large' ? 'active' : ''}" data-font="large">Grande</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Reducir animaciones</div><div class="setting-hint">Una interfaz más estable y cómoda durante el scouting</div></div>
+                    <label><input type="checkbox" id="reduce-motion" ${prefs.reduceMotion ? 'checked' : ''}> Activado</label>
+                </div>
+            </div>
+
+            <div class="card settings-card">
+                <h3 class="settings-section-title">🎬 Reproducción</h3>
+                <div class="setting-row"><div><div class="setting-label">Salto de vídeo</div><div class="setting-hint">Segundos al avanzar o retroceder con el teclado</div></div><input type="number" id="video-seek-seconds" class="form-input" min="1" max="60" value="${prefs.videoSeekSeconds || 5}" style="width:90px"></div>
+                <div class="setting-row"><div><div class="setting-label">Velocidad inicial</div><div class="setting-hint">Se aplica al abrir un nuevo scouting</div></div><select id="video-default-speed" class="form-input" style="width:90px">${[0.5,0.75,1,1.25,1.5,2].map(speed => `<option value="${speed}" ${Number(prefs.videoDefaultSpeed || 1) === speed ? 'selected' : ''}>${speed}×</option>`).join('')}</select></div>
             </div>
 
             <div class="card settings-card">
@@ -91,27 +110,7 @@ function renderPage(container) {
                 </div>
             </div>
 
-            <div class="card settings-card">
-                <h3 class="settings-section-title">⌨️ Atajos de Teclado</h3>
-                <div class="setting-row">
-                    <div>
-                        <div class="setting-label">Tecla Ataque</div>
-                        <div class="setting-hint">Tecla para el tipo de golpe Ataque</div>
-                    </div>
-                    <div>
-                        <input type="text" id="key-ataque" value="${prefs.keyAtaque || 'a'}" maxlength="1" style="width: 40px; text-align: center; text-transform: lowercase;" class="form-input">
-                    </div>
-                </div>
-                <div class="setting-row">
-                    <div>
-                        <div class="setting-label">Tecla Acelerada</div>
-                        <div class="setting-hint">Tecla para el tipo de golpe Acelerada</div>
-                    </div>
-                    <div>
-                        <input type="text" id="key-acelerada" value="${prefs.keyAcelerada || 'q'}" maxlength="1" style="width: 40px; text-align: center; text-transform: lowercase;" class="form-input">
-                    </div>
-                </div>
-            </div>
+            ${renderKeybindings('playa')}
 
             <div class="flex gap-12" style="margin-top: 8px;">
                 <button class="btn btn-secondary" id="btn-reset-ajustes">↺ Restablecer valores</button>
@@ -137,6 +136,12 @@ function bindEvents(container) {
             markActive(container, '.density-opt', btn);
         });
     });
+    container.querySelectorAll('.font-opt').forEach(btn => btn.addEventListener('click', () => {
+        savePrefs({ fontScale: btn.dataset.font }); markActive(container, '.font-opt', btn);
+    }));
+    container.querySelector('#reduce-motion')?.addEventListener('change', e => savePrefs({ reduceMotion: e.target.checked }));
+    container.querySelector('#video-seek-seconds')?.addEventListener('change', e => savePrefs({ videoSeekSeconds: Math.max(1, Math.min(60, Number(e.target.value) || 5)) }));
+    container.querySelector('#video-default-speed')?.addEventListener('change', e => savePrefs({ videoDefaultSpeed: Number(e.target.value) }));
 
     container.querySelectorAll('.accent-swatch[data-accent]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -170,20 +175,10 @@ function bindEvents(container) {
         }
     });
 
-    const keyAtaqueInput = container.querySelector('#key-ataque');
-    keyAtaqueInput?.addEventListener('change', (e) => {
-        savePrefs({ keyAtaque: e.target.value.toLowerCase() || 'a' });
-        showToast('Atajo de Ataque actualizado', 'success');
-    });
-
-    const keyAceleradaInput = container.querySelector('#key-acelerada');
-    keyAceleradaInput?.addEventListener('change', (e) => {
-        savePrefs({ keyAcelerada: e.target.value.toLowerCase() || 'q' });
-        showToast('Atajo de Acelerada actualizado', 'success');
-    });
+    bindKeybindings(container, 'playa', () => renderPage(container));
 
     container.querySelector('#btn-reset-ajustes')?.addEventListener('click', () => {
-        savePrefs({ theme: 'dark', accent: '#f59e0b', density: 'normal', keyAtaque: 'a', keyAcelerada: 'q' });
+        savePrefs({ theme: 'dark', accent: '#f59e0b', density: 'normal', fontScale: 'normal', reduceMotion: false, videoSeekSeconds: 5, videoDefaultSpeed: 1, keybindings: {} });
         applyPrefs();
         renderPage(container);
         showToast('Ajustes restablecidos', 'info');

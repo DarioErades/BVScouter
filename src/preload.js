@@ -29,12 +29,74 @@ contextBridge.exposeInMainWorld('api', {
   generatePDF: (html, height) => ipcRenderer.invoke('pdf:generate', html, height),
   generateVideoHighlights: (partidoId, filters) => ipcRenderer.invoke('video:generateHighlights', partidoId, filters),
   resolveYoutube: (videoUrl) => ipcRenderer.invoke('video:resolveYoutube', videoUrl),
+  analyzeWhistles: (videoPath) => ipcRenderer.invoke('video:analyzeWhistles', videoPath),
+  getWhistles: (videoPath) => ipcRenderer.invoke('video:getWhistles', videoPath),
+  onWhistleProgress: (callback) => {
+    ipcRenderer.removeAllListeners('whistle:progress');
+    ipcRenderer.on('whistle:progress', (_event, progress) => callback(progress));
+  },
   onVideoProgress: (callback) => {
     ipcRenderer.removeAllListeners('video:progress');
     ipcRenderer.on('video:progress', (_event, progress) => callback(progress));
+  },
+  onYtProgress: (callback) => {
+    ipcRenderer.removeAllListeners('yt:progress');
+    ipcRenderer.on('yt:progress', (_event, progress) => callback(progress));
   },
   // copias de seguridad y exportacion
   backupDatabase: () => ipcRenderer.invoke('db:backup'),
   restoreDatabase: () => ipcRenderer.invoke('db:restore'),
   exportAccionesCSV: (partidoId) => ipcRenderer.invoke('acciones:exportCSV', partidoId),
+});
+
+contextBridge.exposeInMainWorld('apiPista', {
+  // equipos
+  getEquipos: () => ipcRenderer.invoke('pista:equipos:getAll'),
+  createEquipo: (data) => ipcRenderer.invoke('pista:equipos:create', data),
+  updateEquipo: (id, data) => ipcRenderer.invoke('pista:equipos:update', id, data),
+  deleteEquipo: (id) => ipcRenderer.invoke('pista:equipos:delete', id),
+  // jugadores pista
+  getJugadoresByEquipo: (equipoId) => ipcRenderer.invoke('pista:jugadores:getByEquipo', equipoId),
+  createJugadorPista: (data) => ipcRenderer.invoke('pista:jugadores:create', data),
+  updateJugadorPista: (id, data) => ipcRenderer.invoke('pista:jugadores:update', id, data),
+  deleteJugadorPista: (id) => ipcRenderer.invoke('pista:jugadores:delete', id),
+  // carpetas pista
+  getCarpetasPista: () => ipcRenderer.invoke('pista:carpetas:getAll'),
+  createCarpetaPista: (nombre) => ipcRenderer.invoke('pista:carpetas:create', nombre),
+  deleteCarpetaPista: (id) => ipcRenderer.invoke('pista:carpetas:delete', id),
+  // partidos pista
+  getPartidosPista: () => ipcRenderer.invoke('pista:partidos:getAll'),
+  getPartidoPista: (id) => ipcRenderer.invoke('pista:partidos:getById', id),
+  createPartidoPista: (data) => ipcRenderer.invoke('pista:partidos:create', data),
+  updatePartidoPista: (id, data) => ipcRenderer.invoke('pista:partidos:update', id, data),
+  deletePartidoPista: (id) => ipcRenderer.invoke('pista:partidos:delete', id),
+  movePartidoPistaToCarpeta: (partidoId, carpetaId) => ipcRenderer.invoke('pista:partidos:moveToCarpeta', partidoId, carpetaId),
+  // roster
+  getRoster: (partidoId) => ipcRenderer.invoke('pista:roster:getByPartido', partidoId),
+  addRosterJugador: (data) => ipcRenderer.invoke('pista:roster:addJugador', data),
+  updateRosterJugador: (id, data) => ipcRenderer.invoke('pista:roster:updateJugador', id, data),
+  removeRosterJugador: (id) => ipcRenderer.invoke('pista:roster:removeJugador', id),
+  // acciones pista
+  getAccionesPista: (partidoId) => ipcRenderer.invoke('pista:acciones:getByPartido', partidoId),
+  createAccionPista: (data) => ipcRenderer.invoke('pista:acciones:create', data),
+  updateAccionPista: (id, data) => ipcRenderer.invoke('pista:acciones:update', id, data),
+  deleteAccionPista: (id) => ipcRenderer.invoke('pista:acciones:delete', id),
+  undoLastAccionPista: (partidoId) => ipcRenderer.invoke('pista:acciones:deleteLastByPartido', partidoId),
+  // stats
+  getStatsPista: (partidoId) => ipcRenderer.invoke('pista:stats:getByPartido', partidoId),
+  // video
+  generateVideoHighlightsPista: (partidoId, filters) => ipcRenderer.invoke('pista:video:generateHighlights', partidoId, filters),
+  onVideoProgressPista: (callback) => {
+    ipcRenderer.removeAllListeners('pista:video:progress');
+    ipcRenderer.on('pista:video:progress', (_event, progress) => callback(progress));
+  },
+  onYtProgress: (callback) => {
+    ipcRenderer.removeAllListeners('yt:progress');
+    ipcRenderer.on('yt:progress', (_event, progress) => callback(progress));
+  },
+  // db
+  backupDatabasePista: () => ipcRenderer.invoke('pista:db:backup'),
+  restoreDatabasePista: () => ipcRenderer.invoke('pista:db:restore'),
+  // csv
+  exportAccionesPistaCSV: (partidoId) => ipcRenderer.invoke('pista:acciones:exportCSV', partidoId),
 });

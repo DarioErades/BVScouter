@@ -5,9 +5,32 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { descargarYtDlp } from './utils/ytdlp-helper.js';
+import { getFfmpegPath } from './utils/ffmpeg-helper.js';
+import { detectWhistles, getCachedWhistles } from './utils/whistle-detector.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
+
+const LIMITS = { shortText: 160, notes: 10000, videoUrl: 4096 };
+function validId(value) {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id < 1) throw new Error('Identificador no válido');
+  return id;
+}
+function text(value, max = LIMITS.shortText) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, max);
+}
+function pick(data, fields) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Datos no válidos');
+  return Object.fromEntries(Object.entries(data).filter(([key]) => fields.includes(key)));
+}
+
+function localVideoPath(videoPath) {
+  if (typeof videoPath !== 'string' || !videoPath.startsWith('local-video://')) return videoPath;
+  try { return decodeURIComponent(new URL(videoPath).searchParams.get('path') || ''); } catch { return ''; }
+}
 
 
 // ---- JUGADORES ----
@@ -19,7 +42,8 @@ ipcMain.handle('jugadores:getAll', () => {
 
 ipcMain.handle('jugadores:create', (_event, data) => {
   const db = getDB();
-  const completo = { nombre: '', apellidos: '', nacionalidad: '', posicion: '', notas: '', ...data };
+  const input = pick(data, ['nombre', 'apellidos', 'nacionalidad', 'posicion', 'notas']);
+  const completo = { nombre: text(input.nombre), apellidos: text(input.apellidos), nacionalidad: text(input.nacionalidad), posicion: text(input.posicion), notas: text(input.notas, LIMITS.notes) };
   const stmt = db.prepare(`
     INSERT INTO jugadores (nombre, apellidos, nacionalidad, posicion, notas)
     VALUES (@nombre, @apellidos, @nacionalidad, @posicion, @notas)
@@ -30,11 +54,14 @@ ipcMain.handle('jugadores:create', (_event, data) => {
 
 ipcMain.handle('jugadores:update', (_event, id, data) => {
   const db = getDB();
-  const campos = Object.keys(data);
+  id = validId(id);
+  const safeData = pick(data, ['nombre', 'apellidos', 'nacionalidad', 'posicion', 'notas']);
+  for (const key of Object.keys(safeData)) safeData[key] = text(safeData[key], key === 'notas' ? LIMITS.notes : LIMITS.shortText);
+  const campos = Object.keys(safeData);
   if (campos.length === 0) return true;
   const sets = campos.map(c => `${c} = @${c}`).join(', ');
   const stmt = db.prepare(`UPDATE jugadores SET ${sets} WHERE id = @id`);
-  return stmt.run({ ...data, id });
+  return stmt.run({ ...safeData, id });
 });
 
 ipcMain.handle('jugadores:delete', (_event, id) => {
@@ -51,6 +78,8 @@ ipcMain.handle('carpetas:getAll', () => {
 
 ipcMain.handle('carpetas:create', (_event, nombre) => {
   const db = getDB();
+  nombre = text(nombre);
+  if (!nombre) throw new Error('El nombre de la carpeta es obligatorio');
   const stmt = db.prepare('INSERT INTO carpetas (nombre) VALUES (?)');
   const result = stmt.run(nombre);
   return { id: result.lastInsertRowid, nombre };
@@ -89,11 +118,14 @@ ipcMain.handle('partidos:create', (_event, data) => {
     INSERT INTO partidos (fecha, torneo, fase, jugador1_nombre, jugador2_nombre, video_tipo, video_url, resultado, notas)
     VALUES (@fecha, @torneo, @fase, @jugador1_nombre, @jugador2_nombre, @video_tipo, @video_url, @resultado, @notas)
   `);
+  const input = pick(data, ['fecha', 'torneo', 'fase', 'jugador1_nombre', 'jugador2_nombre', 'video_tipo', 'video_url', 'resultado', 'notas']);
   const completeData = {
     fecha: '', torneo: '', fase: '', jugador1_nombre: '', jugador2_nombre: '',
     video_tipo: '', video_url: '', resultado: '', notas: '',
-    ...data
+    ...input
   };
+  for (const key of Object.keys(completeData)) completeData[key] = text(completeData[key], key === 'notas' ? LIMITS.notes : key === 'video_url' ? LIMITS.videoUrl : LIMITS.shortText);
+  if (!completeData.fecha || !completeData.jugador1_nombre || !completeData.jugador2_nombre) throw new Error('Faltan datos obligatorios del partido');
   const result = stmt.run(completeData);
   return result.lastInsertRowid;
 });
@@ -101,11 +133,17 @@ ipcMain.handle('partidos:create', (_event, data) => {
 // update parcial - solo actualizamos los campos que nos llegan
 ipcMain.handle('partidos:update', (_event, id, data) => {
   const db = getDB();
-  const campos = Object.keys(data);
+  id = validId(id);
+  const safeData = pick(data, ['fecha', 'torneo', 'fase', 'jugador1_nombre', 'jugador2_nombre', 'video_tipo', 'video_url', 'resultado', 'notas', 'carpeta_id', 'finalizado']);
+  for (const key of Object.keys(safeData)) {
+    if (['carpeta_id', 'finalizado'].includes(key)) continue;
+    safeData[key] = text(safeData[key], key === 'notas' ? LIMITS.notes : key === 'video_url' ? LIMITS.videoUrl : LIMITS.shortText);
+  }
+  const campos = Object.keys(safeData);
   if (campos.length === 0) return;
   const sets = campos.map(c => `${c} = @${c}`).join(', ');
   const stmt = db.prepare(`UPDATE partidos SET ${sets} WHERE id = @id`);
-  return stmt.run({ ...data, id });
+  return stmt.run({ ...safeData, id });
 });
 
 ipcMain.handle('partidos:delete', (_event, id) => {
@@ -137,11 +175,14 @@ ipcMain.handle('acciones:getByPartido', (_event, partidoId) => {
 
 ipcMain.handle('acciones:create', (_event, data) => {
   const db = getDB();
+  const safeData = pick(data, ['partido_id', 'jugador_nombre', 'complejo', 'tipo_accion', 'subtipo', 'resultado', 'set_numero', 'marcador_local', 'marcador_rival', 'video_timestamp', 'zona_campo', 'es_favorito']);
+  safeData.partido_id = validId(safeData.partido_id);
+  for (const key of ['jugador_nombre', 'complejo', 'tipo_accion', 'subtipo', 'resultado', 'marcador_local', 'marcador_rival', 'zona_campo']) safeData[key] = text(safeData[key]);
   const stmt = db.prepare(`
     INSERT INTO acciones (partido_id, jugador_nombre, complejo, tipo_accion, subtipo, resultado, set_numero, marcador_local, marcador_rival, video_timestamp, zona_campo, es_favorito)
     VALUES (@partido_id, @jugador_nombre, @complejo, @tipo_accion, @subtipo, @resultado, @set_numero, @marcador_local, @marcador_rival, @video_timestamp, @zona_campo, @es_favorito)
   `);
-  const result = stmt.run({...data, es_favorito: data.es_favorito ? 1 : 0});
+  const result = stmt.run({...safeData, es_favorito: safeData.es_favorito ? 1 : 0});
   return result.lastInsertRowid;
 });
 
@@ -152,11 +193,14 @@ ipcMain.handle('acciones:delete', (_event, id) => {
 
 ipcMain.handle('acciones:update', (_event, id, data) => {
   const db = getDB();
-  const campos = Object.keys(data);
+  id = validId(id);
+  const safeData = pick(data, ['jugador_nombre', 'complejo', 'tipo_accion', 'subtipo', 'resultado', 'set_numero', 'marcador_local', 'marcador_rival', 'video_timestamp', 'zona_campo', 'es_favorito']);
+  for (const key of ['jugador_nombre', 'complejo', 'tipo_accion', 'subtipo', 'resultado', 'marcador_local', 'marcador_rival', 'zona_campo']) if (key in safeData) safeData[key] = text(safeData[key]);
+  const campos = Object.keys(safeData);
   if (campos.length === 0) return true;
   const sets = campos.map(c => `${c} = @${c}`).join(', ');
   const stmt = db.prepare(`UPDATE acciones SET ${sets} WHERE id = @id`);
-  return stmt.run({ ...data, id });
+  return stmt.run({ ...safeData, id });
 });
 
 ipcMain.handle('acciones:deleteLastByPartido', (_event, partidoId) => {
@@ -183,6 +227,13 @@ ipcMain.handle('dialog:openFile', async () => {
   if (result.canceled) return null;
   return result.filePaths[0];
 });
+
+ipcMain.handle('video:analyzeWhistles', async (_event, videoPath) => {
+  const filePath = localVideoPath(videoPath);
+  if (!filePath || !fs.existsSync(filePath)) throw new Error('El vídeo local no está disponible');
+  return detectWhistles(filePath, percent => _event.sender.send('whistle:progress', { percent }));
+});
+ipcMain.handle('video:getWhistles', (_event, videoPath) => getCachedWhistles(localVideoPath(videoPath)));
 
 // ---- ESTADÍSTICAS ----
 
@@ -266,7 +317,7 @@ ipcMain.handle('stats:getByPartido', (_event, partidoId) => {
 // para cachear vídeos de YouTube descargados y no bajarlos cada vez
 const ytCache = new Map();
 
-async function resolverVideoPath(partido) {
+async function resolverVideoPath(partido, onProgress) {
   if (partido.video_tipo === 'local') {
     if (!fs.existsSync(partido.video_url)) {
       throw new Error('El archivo de vídeo original no existe.');
@@ -275,7 +326,6 @@ async function resolverVideoPath(partido) {
   }
 
   if (partido.video_tipo === 'youtube') {
-    // si ya lo descargamos antes, reutilizamos
     if (ytCache.has(partido.video_url) && fs.existsSync(ytCache.get(partido.video_url))) {
       return ytCache.get(partido.video_url);
     }
@@ -283,7 +333,6 @@ async function resolverVideoPath(partido) {
     const tmpDir = path.join(os.tmpdir(), 'bvscouter_yt');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
-    // nombre basado en hash simple de la url para no repetir
     const safeId = partido.video_url.replace(/[^a-zA-Z0-9]/g, '_').slice(-60);
     const outputPath = path.join(tmpDir, `${safeId}.mp4`);
 
@@ -292,36 +341,7 @@ async function resolverVideoPath(partido) {
       return outputPath;
     }
 
-    const ytdlp = fs.existsSync('/home/dario/.local/bin/yt-dlp') ? '/home/dario/.local/bin/yt-dlp' : 'yt-dlp';
-
-    // las versiones recientes de yt-dlp requieren un runtime de JS y el
-    // solucionador remoto de retos para extraer vídeos de YouTube. Usamos node
-    // (instalado con la app) y el componente remoto 'ejs'. Se intenta primero la
-    // extracción completa y, si falla, se prueba el cliente 'android' como respaldo.
-    const nodePath = fs.existsSync('/usr/bin/node') ? '/usr/bin/node' : 'node';
-    const runtimeArgs = ['--js-runtimes', `node:${nodePath}`, '--remote-components', 'ejs:github'];
-    const intentos = [
-      [...runtimeArgs, '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best',
-        '--merge-output-format', 'mp4', '--no-playlist'],
-      [...runtimeArgs, '-f', 'best[ext=mp4]/best', '--no-playlist',
-        '--extractor-args', 'youtube:player_client=android']
-    ];
-
-    let ultimoError = '';
-    for (const args of intentos) {
-      try {
-        await execFileAsync(ytdlp, [...args, '-o', outputPath, partido.video_url], { timeout: 600000 });
-        if (fs.existsSync(outputPath)) break;
-      } catch(e) {
-        ultimoError = (e && (e.stderr || e.message)) ? String(e.stderr || e.message) : String(e);
-        console.error('yt-dlp falló:', ultimoError);
-      }
-    }
-
-    if (!fs.existsSync(outputPath)) {
-      const detalle = ultimoError ? ` Detalle: ${ultimoError.split('\n').filter(Boolean).slice(-2).join(' ')}` : '';
-      throw new Error(`No se pudo descargar el vídeo de YouTube.${detalle}`);
-    }
+    await descargarYtDlp(outputPath, partido.video_url, onProgress);
 
     ytCache.set(partido.video_url, outputPath);
     return outputPath;
@@ -331,9 +351,11 @@ async function resolverVideoPath(partido) {
 }
 
 // descarga el video de yt si hace falta y devuelve la url local-video:// para el player nativo
-ipcMain.handle('video:resolveYoutube', async (_event, videoUrl) => {
+ipcMain.handle('video:resolveYoutube', async (event, videoUrl) => {
   const partido = { video_tipo: 'youtube', video_url: videoUrl };
-  const filePath = await resolverVideoPath(partido);
+  const filePath = await resolverVideoPath(partido, (prog) => {
+    event.sender.send('yt:progress', prog);
+  });
   return `local-video://video?path=${encodeURIComponent(filePath)}`;
 });
 
@@ -459,7 +481,11 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
     }));
   }
   
-  if (intervals.length > 0) {
+  // En el modo "puntos" cada intervalo representa un rally completo. No los
+  // fusionamos aunque los márgenes se solapen: hacerlo convierte varios
+  // puntos consecutivos en un único clip (a veces, en todo el partido) y
+  // conserva el marcador del primer punto para todo el vídeo fusionado.
+  if (intervals.length > 0 && filters.modo !== 'puntos') {
       intervals.sort((a, b) => a.start - b.start);
       const merged = [intervals[0]];
       for (let i = 1; i < intervals.length; i++) {
@@ -561,7 +587,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
       const totalDuration = intervals.reduce((acc, curr) => acc + (curr.end - curr.start), 0);
       
       await new Promise((resolve, reject) => {
-          const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+          const ffmpeg = spawn(getFfmpegPath(), ffmpegArgs);
           
           ffmpeg.stderr.on('data', (data) => {
               const str = data.toString();

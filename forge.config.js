@@ -21,9 +21,9 @@ module.exports = {
   packagerConfig: {
     asar: false,
     afterCopy: [
-      // copiamos better-sqlite3 y sus deps al node_modules del paquete
+      // copiamos sql.js al node_modules del paquete
       (buildPath, electronVersion, platform, arch, callback) => {
-        const modulosACopiar = ['better-sqlite3', 'bindings', 'file-uri-to-path', 'prebuild-install', 'node-addon-api'];
+        const modulosACopiar = ['sql.js', 'ffmpeg-static'];
         const nodeModulesSrc = path.resolve(__dirname, 'node_modules');
         const nodeModulesDest = path.join(buildPath, 'node_modules');
 

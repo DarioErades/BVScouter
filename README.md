@@ -24,7 +24,7 @@ La aplicación está diseñada siguiendo el patrón de arquitectura de Electron,
 
 *   **Shell del Sistema:** [Electron 43](https://www.electronjs.org/)
 *   **Empaquetado y Bundling:** [Vite](https://vitejs.dev/) + [Electron Forge](https://www.electronforge.io/)
-*   **Base de Datos local:** [SQLite](https://www.sqlite.org/) con el driver nativo de alto rendimiento [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) (activado en modo WAL y con claves foráneas habilitadas).
+*   **Base de Datos local:** [SQLite](https://www.sqlite.org/) mediante [sql.js](https://github.com/sql-js/sql.js), con persistencia local, copias de seguridad y migraciones versionadas.
 *   **Motor Gráfico:** [Chart.js](https://www.chartjs.org/) para la representación visual de estadísticas.
 *   **Procesamiento de Vídeo:** [ffmpeg](https://ffmpeg.org/) (recorte de vídeo y composición de marcador) + [yt-dlp](https://github.com/yt-dlp/yt-dlp) (descarga inteligente de partidos desde plataformas de vídeo).
 
@@ -143,6 +143,15 @@ npm install
 Arranca Electron con soporte para recarga en caliente (Hot Module Replacement - HMR) para el renderer:
 ```bash
 npm start
+```
+
+### Comprobaciones de calidad
+
+Ejecuta las pruebas de reglas de marcador, estadísticas y colas de revisión:
+
+```bash
+npm test
+npm run lint
 ```
 
 ---

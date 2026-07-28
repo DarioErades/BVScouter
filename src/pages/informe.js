@@ -1,9 +1,10 @@
 // pagina del informe con graficos
 
 import { router } from '../router.js';
-import { showToast, formatDate, getChartColors, getChartColorsAlpha } from '../utils/helpers.js';
+import { showToast, formatDate, formatTimestamp, escapeHtml, getChartColors, getChartColorsAlpha } from '../utils/helpers.js';
 import { calcularStats, detectarPatrones } from '../utils/stats-calculator.js';
 import { generateCustomPdfHtml } from '../utils/pdf-generator.js';
+import { actionsForReview, reviewCategories } from '../utils/scouting-review.js';
 
 // guardamos refs a los charts para destruirlos al salir
 let chartInstances = [];
@@ -23,6 +24,7 @@ export function registerInforme() {
 
         const acciones = await window.api.getAcciones(params.partidoId);
         let currentSetFilter = 'all';
+        let currentReviewCategory = 'favorites';
 
         const j1Nombre = partido.jugador1_nombre;
         const j2Nombre = partido.jugador2_nombre;
@@ -68,6 +70,8 @@ export function registerInforme() {
 
             const stats = calcularStats(accionesFiltradas, partido.jugador1_nombre, partido.jugador2_nombre);
             const patrones = detectarPatrones(accionesFiltradas, partido.jugador1_nombre, partido.jugador2_nombre);
+            const reviewItems = actionsForReview(accionesFiltradas, currentReviewCategory);
+            const reviewOptions = reviewCategories(accionesFiltradas);
 
             container.innerHTML = `
                 <div class="report-container page-enter">
@@ -76,8 +80,8 @@ export function registerInforme() {
                         <div>
                             <h1 class="report-title">📊 Informe de Scouting</h1>
                             <div class="report-meta">
-                                <p><strong>${j1Nombre}</strong> / <strong>${j2Nombre}</strong></p>
-                                <p>${partido.torneo || 'Sin torneo'} · ${partido.fase || '-'} · ${formatDate(partido.fecha)}</p>
+                                <p><strong>${escapeHtml(j1Nombre)}</strong> / <strong>${escapeHtml(j2Nombre)}</strong></p>
+                                <p>${escapeHtml(partido.torneo || 'Sin torneo')} · ${escapeHtml(partido.fase || '-')} · ${formatDate(partido.fecha)}</p>
                                 <p>Resultado: <strong class="text-accent">${resultadoCalculado}</strong> · ${accionesFiltradas.length} acciones analizadas</p>
                             </div>
                         </div>
@@ -87,6 +91,17 @@ export function registerInforme() {
                                 <option value="all" ${currentSetFilter === 'all' ? 'selected' : ''}>Todos los Sets</option>
                                 ${setsDisponibles.map(s => `<option value="${s}" ${currentSetFilter == s ? 'selected' : ''}>Set ${s}</option>`).join('')}
                             </select>
+                        </div>
+                    </div>
+
+                    <div class="report-section">
+                        <h2 class="report-section-title">🔎 Revisión rápida</h2>
+                        <p class="report-stat-sublabel" style="margin-bottom: 12px;">Selecciona una cola de jugadas para comentarla o preparar clips.</p>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+                            ${reviewOptions.map(option => `<button class="btn btn-sm ${option.id === currentReviewCategory ? 'btn-primary' : 'btn-secondary'} btn-review-filter" data-category="${option.id}">${option.label} (${option.count})</button>`).join('')}
+                        </div>
+                        <div class="review-list" style="max-height:160px; overflow:auto; display:grid; gap:6px;">
+                            ${reviewItems.length ? reviewItems.slice(0, 30).map(action => `<div class="timeline-item ${escapeHtml(action.resultado || '')}" style="display:flex; gap:10px; align-items:center;"><span class="timestamp">${formatTimestamp(action.video_timestamp)}</span><strong>${escapeHtml(action.jugador_nombre)}</strong><span>${escapeHtml(action.tipo_accion)}${action.subtipo ? ` · ${escapeHtml(action.subtipo)}` : ''}</span></div>`).join('') : '<span class="report-stat-sublabel">No hay jugadas en esta cola.</span>'}
                         </div>
                     </div>
 
@@ -499,6 +514,11 @@ export function registerInforme() {
                 currentSetFilter = e.target.value;
                 renderReportData();
             });
+
+            container.querySelectorAll('.btn-review-filter').forEach(button => button.addEventListener('click', () => {
+                currentReviewCategory = button.dataset.category;
+                renderReportData();
+            }));
 
             document.getElementById('btn-guardar-notas').addEventListener('click', async () => {
                 const notas = document.getElementById('conclusiones-text').value;

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { descargarYtDlp } from './utils/ytdlp-helper.js';
-import { getFfmpegPath } from './utils/ffmpeg-helper.js';
+import { getFfmpegPath, tieneAudio } from './utils/ffmpeg-helper.js';
 import { detectWhistles, getCachedWhistles } from './utils/whistle-detector.js';
 
 const execAsync = promisify(exec);
@@ -226,6 +226,16 @@ ipcMain.handle('dialog:openFile', async () => {
   });
   if (result.canceled) return null;
   return result.filePaths[0];
+});
+
+// En Windows, tras un confirm()/alert() nativo los campos de texto dejan de recibir teclado
+// hasta que la ventana pierde y recupera el foco.
+ipcMain.handle('window:restoreFocus', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  win.blur();
+  win.focus();
+  event.sender.focus();
 });
 
 ipcMain.handle('video:analyzeWhistles', async (_event, videoPath) => {
@@ -502,17 +512,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   }
 
   // comprobamos si tiene audio para que el filtro no pete
-  let hasAudio = false;
-  try {
-      const { stdout } = await execFileAsync('ffprobe', [
-        '-v', 'error',
-        '-select_streams', 'a',
-        '-show_entries', 'stream=index',
-        '-of', 'csv=p=0',
-        videoPath
-      ]);
-      hasAudio = stdout.trim().length > 0;
-  } catch(e) {}
+  const hasAudio = await tieneAudio(videoPath);
 
   const filterFilePath = path.join(os.tmpdir(), `bvscouter_filter_${Date.now()}.txt`);
   let filterGraph = '';

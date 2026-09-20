@@ -10,6 +10,8 @@
 }
 
 .pista-select {
+    color-scheme: dark;
+    background-color: #1e293b;
     appearance: none;
     -webkit-appearance: none;
     border: 1px solid #475569;
@@ -538,4 +540,11 @@
 .roster-table select:focus {
     border-color: var(--accent-primary);
     outline: none;
+}
+
+/* Las listas desplegables toman su fondo de la opción: sin esto salen blancas con texto claro */
+.pista-select option,
+.pista-select optgroup {
+    background-color: #1e293b;
+    color: #f8fafc;
 }

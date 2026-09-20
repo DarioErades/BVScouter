@@ -26,7 +26,7 @@ const COMMON_PISTA = [
     ['open-settings', 'Abrir ajustes', 'F10'],
     ['whistle-previous', 'Silbato anterior', 'MouseBack'], ['whistle-next', 'Siguiente silbato', 'MouseForward'],
     ['result-point', 'Resultado: punto', 'Enter'], ['result-error', 'Resultado: error', '='], ['result-error-alt', 'Resultado: error (alternativo)', 'Backspace'],
-    ['result-blocked', 'Resultado: bloqueado', '/'], ['result-blocked-alt', 'Resultado: bloqueado (alternativo)', '7'],
+    ['result-blocked', 'Resultado: bloqueado', '/'], ['result-blocked-alt', 'Resultado: bloqueado (alternativo)', '8'],
     ['result-positive', 'Resultado: positiva', '+'], ['result-negative', 'Resultado: negativa', '!'], ['result-poor', 'Resultado: pobre', '-'], ['undo', 'Deshacer última acción', 'z'],
     ['video-play', 'Vídeo: reproducir / pausar', ' '], ['video-forward', 'Vídeo: avanzar', 'ArrowRight'],
     ['video-backward', 'Vídeo: retroceder', 'ArrowLeft'], ['timeout', 'Registrar tiempo muerto', 't'],
@@ -86,6 +86,7 @@ export function actionForKey(mode, key) {
         'video-slower': { action: 'videoSlower' }, 'video-faster': { action: 'videoFaster' },
         'video-fullscreen': { action: 'videoFullscreen' }, 'video-speed-3x': { action: 'videoSpeed3x' },
         'video-reverse': { action: 'videoReverse' }, 'timeout': { action: 'registerTimeout' },
+        'whistle-previous': { action: 'whistlePrevious' }, 'whistle-next': { action: 'whistleNext' },
         'open-settings': { action: 'openSettings' }
     };
     return map[id] || null;

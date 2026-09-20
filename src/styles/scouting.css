@@ -1051,3 +1051,14 @@ input:checked + .toggle-slider:before {
     50% { transform: scale(1.35); }
     100% { transform: scale(1); }
 }
+
+.btn-save-rally {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    opacity: 0.7;
+    transition: opacity var(--transition-fast);
+}
+.btn-save-rally:hover { opacity: 1; }
+.btn-save-rally:disabled { opacity: 0.3; cursor: wait; }

@@ -928,3 +928,10 @@ table tr:last-child td {
     letter-spacing: 0.5px;
     animation: pulse 1.5s ease-in-out infinite;
 }
+
+/* Desplegables de los formularios legibles en tema claro y oscuro */
+select option,
+select optgroup {
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+}

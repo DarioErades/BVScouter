@@ -30,6 +30,7 @@ const DEFAULT_PREFS = {
     videoSeekSeconds: 5,
     videoDefaultSpeed: 1,
     keybindings: {},
+    playerSelectMode: 'dorsales', // 'dorsales' | 'posiciones' (solo pista)
     keyAtaque: 'a',
     keyAcelerada: 'q'
 };

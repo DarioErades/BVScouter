@@ -34,6 +34,12 @@ function renderPage(container) {
                 <div class="setting-row"><div><div class="setting-label">Velocidad inicial</div><div class="setting-hint">Se aplica a los nuevos scoutings</div></div><select id="video-default-speed" class="form-input" style="width:90px">${[0.5,0.75,1,1.25,1.5,2].map(speed => `<option value="${speed}" ${Number(prefs.videoDefaultSpeed || 1) === speed ? 'selected' : ''}>${speed}×</option>`).join('')}</select></div>
             </div>
 
+            <div class="card settings-card" style="margin-bottom:16px; padding:20px;">
+                <h3 class="settings-section-title">🏐 Selección de jugador</h3>
+                <div class="setting-row"><div><div class="setting-label">Teclas numéricas</div><div class="setting-hint">Dorsales: escribes el dorsal. Posiciones (según el colocador, que debe ser único en pista; tras él van receptor, central, opuesto, receptor y central en orden de posición): 1 colocador/opuesto zaguero, 2 colocador/opuesto delantero, 3 central delantero, 4 receptor delantero, 5 central zaguero, 6 receptor zaguero, 7 líbero</div></div>
+                    <select id="player-select-mode" class="form-input" style="width:140px"><option value="dorsales" ${prefs.playerSelectMode !== 'posiciones' ? 'selected' : ''}>Dorsales</option><option value="posiciones" ${prefs.playerSelectMode === 'posiciones' ? 'selected' : ''}>Posiciones</option></select></div>
+            </div>
+
             ${renderKeybindings('pista')}
 
             <div class="card settings-card" style="margin-bottom: 16px; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border);">
@@ -182,6 +188,7 @@ function bindEvents(container) {
 
     container.querySelector('#video-seek-seconds')?.addEventListener('change', e => setPrefs({ videoSeekSeconds: Math.max(1, Math.min(60, Number(e.target.value) || 5)) }));
     container.querySelector('#video-default-speed')?.addEventListener('change', e => setPrefs({ videoDefaultSpeed: Number(e.target.value) }));
+    container.querySelector('#player-select-mode')?.addEventListener('change', e => { setPrefs({ playerSelectMode: e.target.value }); showToast('Modo de selección actualizado', 'success'); });
     bindKeybindings(container, 'pista', () => renderPage(container));
 
     container.querySelector('#btn-backup-db-pista')?.addEventListener('click', async () => {

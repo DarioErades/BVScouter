@@ -64,6 +64,62 @@ function setupYoutubeTracking() {
     }, 250);
 }
 
+// La rotación R es la posición del colocador (R6 = colocador en P6...). Al rotar el
+// equipo pasa de P6 a P5, P4... P1 y vuelve a P6. El lineup guardado es la colocación
+// con el colocador en P1 (R1); al fijar titulares se "deshace" la rotación r.
+const rotarAdelante = (r) => (r === 1 ? 6 : r - 1);
+const rotarAtras = (r) => (r === 6 ? 1 : r + 1);
+const giros = (r) => (7 - r) % 6;
+const slotEnPosicion = (posNum, r) => ((posNum - 1 + giros(r)) % 6) + 1;
+
+function lineupEnBaseR1(lineupReal, r) {
+    const base = {};
+    for (const [pos, dorsal] of Object.entries(lineupReal)) {
+        base[slotEnPosicion(Number(pos), r)] = dorsal;
+    }
+    return base;
+}
+
+async function guardarLineupBase(lineup) {
+    if (!scoutingState.rotacionesIniciales) scoutingState.rotacionesIniciales = {};
+    scoutingState.rotacionesIniciales[scoutingState.setActual] = lineup;
+    await window.apiPista.updatePartidoPista(scoutingState.partidoId, {
+        rotaciones_iniciales: JSON.stringify(scoutingState.rotacionesIniciales)
+    });
+}
+
+// R = posición actual del colocador en pista; si no hay uno solo, se usa el estado.
+function getRotacionEfectiva() {
+    const lineup = scoutingState.rotacionesIniciales?.[scoutingState.setActual] || {};
+    const colocadores = Object.values(lineup).filter(d => {
+        const p = scoutingState.roster.find(r => Number(r.dorsal) === Number(d));
+        return p?.posicion && p.posicion.trim().toLowerCase() === 'colocador';
+    });
+    if (colocadores.length !== 1) return scoutingState.rotacionActual;
+    return getCurrentPositionForDorsal(colocadores[0]) ?? scoutingState.rotacionActual;
+}
+
+// Marcador de sets según los sets finalizados (acción fin_set con el ganador).
+function getMarcadorSets() {
+    let local = 0;
+    let rival = 0;
+    (scoutingState.acciones || []).forEach(a => {
+        if (a.tipo_accion !== 'fin_set') return;
+        if (a.resultado === 'local') local++;
+        else if (a.resultado === 'rival') rival++;
+    });
+    return { local, rival };
+}
+
+// El saque lo hace siempre el jugador de la posición 1: se marca solo si no hay nadie elegido.
+function autoSeleccionarSacador() {
+    if (scoutingState.tipoAccion !== 'saque' || scoutingState.dorsalSeleccionado) return;
+    if (!scoutingState.partido?.llevar_rotaciones) return;
+    const lineup = scoutingState.rotacionesIniciales?.[scoutingState.setActual] || {};
+    const dorsal = Number(lineup[slotEnPosicion(1, scoutingState.rotacionActual)]);
+    if (Number.isFinite(dorsal)) scoutingState.dorsalSeleccionado = dorsal;
+}
+
 function isRotationPending() {
     if (!scoutingState || !scoutingState.partido || !scoutingState.partido.llevar_rotaciones) return false;
     const setLineup = scoutingState.rotacionesIniciales?.[scoutingState.setActual];
@@ -114,7 +170,12 @@ export function registerScoutingPista() {
         if (acciones.length > 0) {
             const ultima = acciones[acciones.length - 1];
             scoutingState.setActual = ultima.tipo_accion === 'fin_set' ? Number(ultima.set_numero) + 1 : Number(ultima.set_numero);
-            scoutingState.rotacionActual = ultima.tipo_accion === 'fin_set' ? 1 : (ultima.rotacion || 1);
+            // `rotacion` de una acción es la previa a ella: si ganó el saque, ya rotó después.
+            const previa = acciones[acciones.length - 2];
+            const rotoDespues = previa && previa.set_numero === ultima.set_numero
+                && previa.equipo_al_saque === 'rival' && ultima.equipo_al_saque === 'local';
+            const rotUltima = ultima.rotacion || 1;
+            scoutingState.rotacionActual = ultima.tipo_accion === 'fin_set' ? 1 : (rotoDespues ? rotarAdelante(rotUltima) : rotUltima);
             scoutingState.equipoAlSaque = ultima.equipo_al_saque || 'local';
         }
 
@@ -140,25 +201,68 @@ export function registerScoutingPista() {
     });
 }
 
-async function setupWhistleMouseNavigation(videoPath = scoutingState.partido.video_url) {
+let whistleVideoPath = null;
+let analizandoSilbatos = false;
+
+async function cargarSilbatos() {
     whistleTimestamps = [];
-    if (!videoPath) return;
-    try { whistleTimestamps = await window.api.getWhistles(videoPath); } catch { return; }
-    if (!whistleTimestamps.length) return;
+    if (!whistleVideoPath) return;
+    try { whistleTimestamps = await window.api.getWhistles(whistleVideoPath) || []; } catch { whistleTimestamps = []; }
+}
+
+// direccion: 1 = siguiente silbato, -1 = anterior. Siempre avisa si no puede moverse.
+async function irASilbato(direccion) {
+    const video = document.getElementById('local-video');
+    if (!video) {
+        showToast('Los silbatos solo funcionan con un vídeo local (o de YouTube descargado), no con el reproductor de YouTube', 'warning');
+        return;
+    }
+    if (!whistleTimestamps.length) await cargarSilbatos();
+    // Sin resultados guardados (p. ej. tras mejorar el detector): se analizan ahora.
+    if (!whistleTimestamps.length && whistleVideoPath && !/^https?:/i.test(whistleVideoPath) && window.api?.analyzeWhistles && !analizandoSilbatos) {
+        analizandoSilbatos = true;
+        showToast('Analizando silbatos del vídeo, puede tardar un poco...', 'info');
+        try {
+            whistleTimestamps = await window.api.analyzeWhistles(whistleVideoPath) || [];
+            showToast(`Análisis terminado: ${whistleTimestamps.length} silbatos`, 'success');
+        } catch (error) {
+            showToast(`No se pudieron analizar los silbatos: ${error.message || error}`, 'error');
+            return;
+        } finally {
+            analizandoSilbatos = false;
+        }
+    } else if (analizandoSilbatos) {
+        showToast('Todavía se están analizando los silbatos...', 'info');
+        return;
+    }
+    if (!whistleTimestamps.length) {
+        showToast('No hay silbatos analizados para este vídeo. Marca «Analizar silbatos» al crear el partido o descarga el vídeo de YouTube', 'warning');
+        return;
+    }
+    const now = video.currentTime || 0;
+    const target = direccion > 0
+        ? whistleTimestamps.find(time => time > now + 0.08)
+        : [...whistleTimestamps].reverse().find(time => time < now - 0.08);
+    if (target === undefined) {
+        showToast(direccion > 0 ? 'No hay más silbatos hacia delante' : 'No hay más silbatos hacia atrás', 'info');
+        return;
+    }
+    video.currentTime = target;
+    showToast(`Silbato: ${formatTimestamp(target)}`, 'info');
+}
+
+async function setupWhistleMouseNavigation(videoPath = scoutingState.partido.video_url) {
+    whistleVideoPath = videoPath;
+    await cargarSilbatos();
+    if (mouseWhistleHandler) document.removeEventListener('mousedown', mouseWhistleHandler);
     mouseWhistleHandler = (event) => {
         if ((event.button !== 3 && event.button !== 4) || event.target.closest('input, textarea, select')) return;
         const mouseKey = event.button === 3 ? 'MouseBack' : 'MouseForward';
         const previous = keyFor('pista', 'whistle-previous') === mouseKey;
         const next = keyFor('pista', 'whistle-next') === mouseKey;
         if (!previous && !next) return;
-        const video = document.getElementById('local-video');
-        if (!video) return;
-        const now = video.currentTime || 0;
-        const target = next ? whistleTimestamps.find(time => time > now + 0.08) : [...whistleTimestamps].reverse().find(time => time < now - 0.08);
         event.preventDefault();
-        if (target === undefined) return;
-        video.currentTime = target;
-        showToast(`Silbato: ${formatTimestamp(target)}`, 'info');
+        irASilbato(next ? 1 : -1);
     };
     document.addEventListener('mousedown', mouseWhistleHandler);
 }
@@ -182,7 +286,7 @@ function renderScoutingUI(container) {
                     <div>
                         <div class="match-info-label">Rotación</div>
                         <div class="match-info-value" style="display: flex; gap: 8px; align-items: center; cursor: pointer;" id="box-rotacion" title="Haz clic para cambiar rotación inicial o actual">
-                            <span id="label-rotacion" style="color: var(--accent-primary); font-weight: bold; font-size: 16px;">R${scoutingState.rotacionActual}</span>
+                            <span id="label-rotacion" style="color: var(--accent-primary); font-weight: bold; font-size: 16px;">R${getRotacionEfectiva()}</span>
                             <button class="btn btn-sm btn-secondary" id="btn-rotar" title="Avanzar Rotación (+1)">↻</button>
                         </div>
                     </div>
@@ -195,6 +299,7 @@ function renderScoutingUI(container) {
                             <span class="score" id="score-local" title="Click Izq: +1 | Click Der: -1">${scoutingState.marcadorLocal}</span>
                             <span class="score-separator">-</span>
                             <span class="score" id="score-rival" title="Click Izq: +1 | Click Der: -1">${scoutingState.marcadorRival}</span>
+                            <span id="sets-score" title="Sets ganados (local - rival)" style="font-weight:700; font-size:18px; color:var(--text-secondary); margin-left:6px;">(${getMarcadorSets().local}-${getMarcadorSets().rival})</span>
                             <div class="server-indicator rival ${scoutingState.equipoAlSaque === 'rival' ? 'active' : ''}" id="server-rival">🏐</div>
                         </div>
                     </div>
@@ -330,7 +435,7 @@ function renderVisualCourtWidget() {
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
                 <span class="form-label" style="margin-bottom:0; display:flex; align-items:center; gap:8px; font-size:14px;">
                     🏐 Campo Virtual - Set <span style="color:white; font-weight:bold;" id="court-set-label">${scoutingState.setActual}</span> 
-                    <span style="background: var(--accent-primary); color: #000; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 13px;" id="court-rot-label">R${scoutingState.rotacionActual}</span>
+                    <span style="background: var(--accent-primary); color: #000; padding: 2px 8px; border-radius: 12px; font-weight: 800; font-size: 13px;" id="court-rot-label">R${getRotacionEfectiva()}</span>
                 </span>
                 <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
                     <button class="btn btn-sm btn-secondary" id="btn-cambio-jugador" title="Registrar un cambio / sustitución" style="padding: 4px 8px; font-size: 11px; background: #334155; color: white;">🔄 Cambio</button>
@@ -371,7 +476,7 @@ function renderVisualCourtWidget() {
 
 function renderCourtPlayerCircle(posNum) {
     const setLineup = scoutingState.rotacionesIniciales?.[scoutingState.setActual] || {};
-    const initialPos = ((posNum - 1 + scoutingState.rotacionActual - 1) % 6) + 1;
+    const initialPos = slotEnPosicion(posNum, scoutingState.rotacionActual);
     const dorsal = setLineup[initialPos];
     const jugador = dorsal !== undefined ? scoutingState.roster.find(j => j.dorsal == dorsal) : null;
     const isSelected = scoutingState.dorsalSeleccionado == dorsal && dorsal !== undefined;
@@ -397,7 +502,7 @@ function getCurrentPositionForDorsal(dorsal, rotacion = scoutingState.rotacionAc
     if (!Number.isFinite(dorsalNumber)) return null;
 
     for (let posNum = 1; posNum <= 6; posNum++) {
-        const initialPos = ((posNum - 1 + rotacion - 1) % 6) + 1;
+        const initialPos = slotEnPosicion(posNum, rotacion);
         if (Number(setLineup[initialPos]) === dorsalNumber) return posNum;
     }
     return null;
@@ -480,6 +585,23 @@ function openLineupSetModal() {
     scoutingState.wizardModalAbierto = true;
 }
 
+const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+// Acepta un dorsal ("12", "#12 - Ana") o parte del nombre/apellidos. Devuelve null si no hay
+// una única coincidencia.
+function resolverDorsalEntrada(texto) {
+    const t = String(texto || '').trim();
+    const numero = /^#?\s*(\d+)\b/.exec(t);
+    if (numero) return parseInt(numero[1], 10);
+    const buscado = sinTildes(t);
+    if (!buscado) return null;
+    const coincidencias = scoutingState.roster.filter(j => sinTildes(`${j.nombre || ''} ${j.apellidos || ''}`).includes(buscado));
+    if (coincidencias.length === 1) return Number(coincidencias[0].dorsal);
+    if (coincidencias.length > 1) showToast('Varios jugadores coinciden, sé más específico o usa el dorsal', 'warning');
+    else showToast(`No se encuentra a "${t}" en la plantilla`, 'warning');
+    return undefined;
+}
+
 function openCambioModal() {
     const modal = document.getElementById('modal-cambio-jugador');
     if (!modal) return;
@@ -492,7 +614,7 @@ function openCambioModal() {
 
     if (saleSelect) {
         saleSelect.innerHTML = [1,2,3,4,5,6].map(posNum => {
-            const initialPos = ((posNum - 1 + scoutingState.rotacionActual - 1) % 6) + 1;
+            const initialPos = slotEnPosicion(posNum, scoutingState.rotacionActual);
             const dorsal = currentLineup[initialPos];
             const jug = dorsal !== undefined ? scoutingState.roster.find(j => j.dorsal == dorsal) : null;
             return `<option value="${initialPos}" data-dorsal="${dorsal !== undefined ? dorsal : ''}">P${posNum} - #${dorsal !== undefined ? dorsal : '?'} ${jug ? (jug.nombre || '') + ' ' + (jug.apellidos || '') : ''}</option>`;
@@ -502,7 +624,7 @@ function openCambioModal() {
     if (banquilloList) {
         const dorsalesEnPista = Object.values(currentLineup);
         const banquillo = scoutingState.roster.filter(j => !dorsalesEnPista.includes(j.dorsal));
-        banquilloList.innerHTML = banquillo.map(j => `<option value="${j.dorsal}">#${j.dorsal} - ${j.nombre || ''} ${j.apellidos || ''} (${j.posicion || 'Jug.'})</option>`).join('');
+        banquilloList.innerHTML = banquillo.map(j => `<option value="#${j.dorsal} - ${`${j.nombre || ''} ${j.apellidos || ''}`.trim()}">${j.posicion || 'Jug.'}</option>`).join('');
     }
 
     modal.style.display = 'flex';
@@ -721,7 +843,7 @@ function renderModals() {
                     </div>
                     <div>
                         <label class="form-label" style="display:block; margin-bottom: 4px; color: #4ade80; font-weight: bold;">🟢 Jugador que ENTRA (dorsal del banquillo o nuevo)</label>
-                        <input type="number" min="0" max="99" id="cambio-entra" class="form-input" list="banquillo-dorsals-list" placeholder="Escribe o selecciona dorsal..." style="width: 100%; padding: 8px; font-size: 14px; font-weight: bold; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 6px;">
+                        <input type="text" id="cambio-entra" class="form-input" list="banquillo-dorsals-list" autocomplete="off" placeholder="Escribe dorsal o nombre..." style="width: 100%; padding: 8px; font-size: 14px; font-weight: bold; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 6px;">
                         <datalist id="banquillo-dorsals-list"></datalist>
                     </div>
                     <div style="font-size: 12px; color: var(--text-muted); background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
@@ -801,6 +923,7 @@ function renderModals() {
                         <select id="vid-generar-modo" class="form-input pista-select" style="width: 100%;">
                             <option value="filtrar">Filtrar jugadas específicas por jugador/acción</option>
                             <option value="puntos_ataques">Punto completo cuando ataque un jugador</option>
+                            <option value="aciertos">Todos los aciertos de un jugador (aces, ataques y bloqueos punto)</option>
                             <option value="favoritos">Sólo jugadas marcadas como Favoritas ⭐</option>
                         </select>
                     </div>
@@ -809,6 +932,7 @@ function renderModals() {
                         <select id="vid-plantilla" class="form-input pista-select" style="width:100%;">
                             <option value="">Configurar manualmente</option>
                             <option value="ataques-jugador">Puntos completos de ataques de un jugador</option>
+                            <option value="aciertos">Todos los aciertos de un jugador</option>
                             <option value="saques">Todos los saques de un jugador</option>
                             <option value="recepciones">Todas las recepciones de un jugador</option>
                             <option value="favoritos">Rallies favoritos</option>
@@ -840,6 +964,11 @@ function renderModals() {
                             </select>
                         </div>
                     </div>
+
+                    <label id="vid-punto-entero-wrap" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+                        <input type="checkbox" id="vid-punto-entero">
+                        <span>Exportar el punto entero de cada jugada (el rally completo, no solo la acción)</span>
+                    </label>
 
                     <div style="display: flex; gap: 12px;">
                         <div style="flex: 1;">
@@ -1226,6 +1355,7 @@ function setupActionPanelEvents(container) {
         const btn = e.target.closest('.action-btn');
         if (btn) {
             scoutingState.tipoAccion = btn.dataset.action;
+            autoSeleccionarSacador();
             scoutingState.subtipo = null;
             updateUI();
         }
@@ -1263,7 +1393,7 @@ function setupActionPanelEvents(container) {
     // Rotación
     document.getElementById('btn-rotar').addEventListener('click', (e) => {
         e.stopPropagation();
-        scoutingState.rotacionActual = scoutingState.rotacionActual >= 6 ? 1 : scoutingState.rotacionActual + 1;
+        scoutingState.rotacionActual = rotarAdelante(scoutingState.rotacionActual);
         updateUI();
     });
 
@@ -1285,11 +1415,11 @@ function setupActionPanelEvents(container) {
     });
     document.getElementById('btn-edit-lineup-set')?.addEventListener('click', () => openLineupSetModal());
     document.getElementById('btn-rotar-prev')?.addEventListener('click', () => {
-        scoutingState.rotacionActual = scoutingState.rotacionActual <= 1 ? 6 : scoutingState.rotacionActual - 1;
+        scoutingState.rotacionActual = rotarAtras(scoutingState.rotacionActual);
         updateUI();
     });
     document.getElementById('btn-rotar-next')?.addEventListener('click', () => {
-        scoutingState.rotacionActual = scoutingState.rotacionActual >= 6 ? 1 : scoutingState.rotacionActual + 1;
+        scoutingState.rotacionActual = rotarAdelante(scoutingState.rotacionActual);
         updateUI();
     });
     attachCourtPlayerEvents();
@@ -1323,7 +1453,7 @@ function setupActionPanelEvents(container) {
         await window.apiPista.createAccionPista({
             partido_id: scoutingState.partidoId,
             dorsal: 0,
-            rotacion: scoutingState.rotacionActual,
+            rotacion: getRotacionEfectiva(),
             tipo_accion: 'fin_set',
             subtipo: 'Ganador Set',
             resultado: ganadorLocal ? 'local' : 'rival',
@@ -1414,7 +1544,7 @@ function setupActionPanelEvents(container) {
     document.getElementById('btn-undo').addEventListener('click', async () => {
         if (scoutingState.acciones.length === 0) return;
         await window.apiPista.undoLastAccionPista(scoutingState.partidoId);
-        scoutingState.acciones.pop();
+        const deshecha = scoutingState.acciones.pop();
         
         const prev = scoutingState.acciones[scoutingState.acciones.length - 1];
         if (prev) {
@@ -1422,7 +1552,8 @@ function setupActionPanelEvents(container) {
             scoutingState.marcadorRival = prev.marcador_rival;
             scoutingState.setActual = prev.set_numero;
             scoutingState.equipoAlSaque = prev.equipo_al_saque;
-            scoutingState.rotacionActual = prev.rotacion;
+            // La rotación de la acción deshecha es la que había justo antes de ella.
+            scoutingState.rotacionActual = deshecha?.rotacion || prev.rotacion || 1;
         } else {
             scoutingState.marcadorLocal = 0;
             scoutingState.marcadorRival = 0;
@@ -1559,6 +1690,9 @@ function updateUI() {
         }
     }
 
+    const setsScoreEl = document.getElementById('sets-score');
+    if (setsScoreEl) setsScoreEl.textContent = `(${getMarcadorSets().local}-${getMarcadorSets().rival})`;
+
     if (scoreLocalEl) {
         scoreLocalEl.textContent = scoutingState.marcadorLocal;
         scoreLocalEl.style.opacity = pending ? '0.4' : '1';
@@ -1581,7 +1715,7 @@ function updateUI() {
         serverRivalEl.style.opacity = pending ? '0.2' : (isRivalActive ? '1' : '0.2');
         serverRivalEl.style.pointerEvents = pending ? 'none' : 'auto';
     }
-    if (labelRotEl) labelRotEl.textContent = 'R' + scoutingState.rotacionActual;
+    if (labelRotEl) labelRotEl.textContent = 'R' + getRotacionEfectiva();
 
     const frontRow = document.getElementById('court-row-front');
     const backRow = document.getElementById('court-row-back');
@@ -1589,7 +1723,7 @@ function updateUI() {
         const courtSet = document.getElementById('court-set-label');
         const courtRot = document.getElementById('court-rot-label');
         if (courtSet) courtSet.textContent = scoutingState.setActual;
-        if (courtRot) courtRot.textContent = 'R' + scoutingState.rotacionActual;
+        if (courtRot) courtRot.textContent = 'R' + getRotacionEfectiva();
         frontRow.innerHTML = `${renderCourtPlayerCircle(4)}${renderCourtPlayerCircle(3)}${renderCourtPlayerCircle(2)}`;
         backRow.innerHTML = `${renderCourtPlayerCircle(5)}${renderCourtPlayerCircle(6)}${renderCourtPlayerCircle(1)}`;
         attachCourtPlayerEvents();
@@ -1606,6 +1740,7 @@ async function guardarAccion(resultado) {
         return;
     }
 
+    autoSeleccionarSacador();
     if (!scoutingState.dorsalSeleccionado) {
         if (scoutingState.tipoAccion === 'rival' || scoutingState.tipoAccion === 'error_general') {
             scoutingState.dorsalSeleccionado = 0;
@@ -1617,6 +1752,7 @@ async function guardarAccion(resultado) {
 
     const time = getVideoTimestamp();
     const rotacionAccion = scoutingState.rotacionActual;
+    const rotacionEfectivaAccion = getRotacionEfectiva();
     const marcadorPreLocal = scoutingState.marcadorLocal;
     const marcadorPreRival = scoutingState.marcadorRival;
     
@@ -1647,7 +1783,7 @@ async function guardarAccion(resultado) {
 
     if (scored === 'local') {
         if (scoutingState.equipoAlSaque === 'rival') {
-            scoutingState.rotacionActual = scoutingState.rotacionActual === 6 ? 1 : scoutingState.rotacionActual + 1;
+            scoutingState.rotacionActual = rotarAdelante(scoutingState.rotacionActual);
         }
         scoutingState.equipoAlSaque = 'local';
     } else if (scored === 'rival') {
@@ -1673,7 +1809,7 @@ async function guardarAccion(resultado) {
         marcador_pre_local: marcadorPreLocal,
         marcador_pre_rival: marcadorPreRival,
         dorsal: scoutingState.dorsalSeleccionado,
-        rotacion: rotacionAccion,
+        rotacion: rotacionEfectivaAccion,
         tipo_accion: scoutingState.tipoAccion,
         subtipo,
         resultado: resultado,
@@ -1707,15 +1843,44 @@ async function guardarAccion(resultado) {
     }
 }
 
-async function registrarTiempoMuerto() {
-    const respuesta = window.prompt('¿De qué equipo es el tiempo muerto? Escribe LOCAL o RIVAL:');
-    if (respuesta === null) return;
+// Electron no soporta window.prompt: se pregunta con un pequeño diálogo propio.
+function preguntarEquipoTiempoMuerto() {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:10000;';
+        overlay.innerHTML = `<div class="card" style="padding:20px; min-width:300px; text-align:center;">
+            <p style="margin:0 0 16px; font-weight:600;">¿De qué equipo es el tiempo muerto?</p>
+            <div style="display:flex; gap:8px; justify-content:center;">
+                <button class="btn btn-primary" data-eq="local">Local (L)</button>
+                <button class="btn btn-primary" data-eq="rival">Rival (R)</button>
+                <button class="btn btn-secondary" data-eq="">Cancelar (Esc)</button>
+            </div></div>`;
+        const cerrar = (equipo) => {
+            document.removeEventListener('keydown', teclas, true);
+            overlay.remove();
+            scoutingState.wizardModalAbierto = false;
+            resolve(equipo || null);
+        };
+        const teclas = (e) => {
+            const k = e.key.toLowerCase();
+            if (!['l', 'r', 'escape'].includes(k)) return;
+            e.preventDefault(); e.stopPropagation();
+            cerrar(k === 'l' ? 'local' : (k === 'r' ? 'rival' : null));
+        };
+        overlay.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-eq]');
+            if (btn) cerrar(btn.dataset.eq);
+        });
+        document.addEventListener('keydown', teclas, true);
+        scoutingState.wizardModalAbierto = true;
+        document.body.appendChild(overlay);
+        overlay.querySelector('button')?.focus();
+    });
+}
 
-    const equipo = respuesta.trim().toLowerCase();
-    if (!['local', 'rival'].includes(equipo)) {
-        showToast('Escribe LOCAL o RIVAL para registrar el tiempo muerto', 'warning');
-        return;
-    }
+async function registrarTiempoMuerto() {
+    const equipo = await preguntarEquipoTiempoMuerto();
+    if (!equipo) return;
 
     try {
         await window.apiPista.createAccionPista({
@@ -1724,7 +1889,7 @@ async function registrarTiempoMuerto() {
             marcador_local: scoutingState.marcadorLocal,
             marcador_rival: scoutingState.marcadorRival,
             dorsal: 0,
-            rotacion: scoutingState.rotacionActual,
+            rotacion: getRotacionEfectiva(),
             tipo_accion: 'tiempo_muerto',
             subtipo: equipo === 'local' ? 'Solicitado por Local' : 'Solicitado por Rival',
             resultado: '+',
@@ -1791,6 +1956,7 @@ function renderTimelinePista() {
                 <button class="btn-fav-rally ${isFav ? 'is-fav' : ''}" data-rally-ids="${rallyIds}" title="${isFav ? 'Quitar punto de favoritos' : 'Marcar punto como favorito'}">
                     <span class="fav-star">${isFav ? '★' : '☆'}</span>
                 </button>
+                <button class="btn-save-rally" data-rally-ids="${rallyIds}" data-score="${rally.marcador_local}-${rally.marcador_rival}" title="Guardar vídeo de este punto">💾</button>
                 <button class="btn-delete-rally" data-rally-ids="${rallyIds}" title="Eliminar Punto (y todas sus acciones)">🗑️</button>
             </div>
         </div>`;
@@ -1898,6 +2064,28 @@ function refreshTimelineAndStats() {
         });
     });
 
+    // guardar vídeo de un punto
+    container.querySelectorAll('.btn-save-rally').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const ids = (btn.dataset.rallyIds || '').split(',').map(n => parseInt(n, 10)).filter(Number.isInteger);
+            if (!ids.length) return;
+            btn.disabled = true;
+            showToast('Preparando el vídeo del punto...', 'info');
+            try {
+                const ruta = await window.apiPista.generateVideoHighlightsPista(scoutingState.partidoId, {
+                    modo: 'puntos', ids, pre_margin: 3, post_margin: 2,
+                    nombre_archivo: `punto_${scoutingState.setActual}_${btn.dataset.score}`
+                });
+                if (ruta) showToast('Vídeo del punto guardado', 'success');
+            } catch (err) {
+                showToast(err.message || 'Error al guardar el vídeo del punto', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    });
+
     // vincular eventos eliminar punto
     container.querySelectorAll('.btn-delete-rally').forEach(btn => {
         btn.addEventListener('click', async (e) => {
@@ -1935,6 +2123,47 @@ function refreshTimelineAndStats() {
     `).join('');
 }
 
+// Modo "posiciones": los roles salen del colocador (único en pista). Contando desde su
+// posición hacia P+1: receptor, central, opuesto, receptor, central.
+// 1/2 = colocador u opuesto (zaguero/delantero), 3/4 = central/receptor delantero,
+// 5/6 = central/receptor zaguero, 7 = líbero.
+const ROLES_DESDE_COLOCADOR = ['colocador', 'receptor', 'central', 'opuesto', 'receptor', 'central'];
+const TECLAS_POSICION = {
+    1: { roles: ['colocador', 'opuesto'], zaguero: true },
+    2: { roles: ['colocador', 'opuesto'], zaguero: false },
+    3: { roles: ['central'], zaguero: false },
+    4: { roles: ['receptor'], zaguero: false },
+    5: { roles: ['central'], zaguero: true },
+    6: { roles: ['receptor'], zaguero: true }
+};
+
+function findDorsalByPositionKey(n) {
+    if (n === 7) {
+        const liberos = getLiberosRoster();
+        const enCampo = getDorsalesEnCampo();
+        return (liberos.find(j => enCampo.includes(Number(j.dorsal))) || liberos[0])?.dorsal ?? null;
+    }
+    const def = TECLAS_POSICION[n];
+    if (!def) return null;
+    const lineup = scoutingState.rotacionesIniciales?.[scoutingState.setActual] || {};
+    const colocadores = Object.values(lineup).filter(d => {
+        const j = scoutingState.roster.find(r => Number(r.dorsal) === Number(d));
+        return j?.posicion && j.posicion.trim().toLowerCase() === 'colocador';
+    });
+    if (colocadores.length !== 1) return null;
+    const posColocador = getCurrentPositionForDorsal(colocadores[0]);
+    if (posColocador === null) return null;
+
+    for (let posNum = 1; posNum <= 6; posNum++) {
+        const rol = ROLES_DESDE_COLOCADOR[(posNum - posColocador + 6) % 6];
+        const zaguero = posNum === 1 || posNum === 5 || posNum === 6;
+        if (zaguero === def.zaguero && def.roles.includes(rol)) {
+            return lineup[slotEnPosicion(posNum, scoutingState.rotacionActual)] ?? null;
+        }
+    }
+    return null;
+}
+
 function setupKeyboardShortcuts(container) {
     limpiarShortcuts();
     
@@ -1961,6 +2190,12 @@ function setupKeyboardShortcuts(container) {
 
         const key = e.key;
         const shortcut = actionForKey('pista', key);
+
+        if (shortcut?.action === 'whistlePrevious' || shortcut?.action === 'whistleNext') {
+            e.preventDefault();
+            irASilbato(shortcut.action === 'whistleNext' ? 1 : -1);
+            return;
+        }
 
         // Reproductor de video
         if (shortcut?.action === 'videoPlayPause' || shortcut?.action === 'videoBackward' || shortcut?.action === 'videoForward') {
@@ -1990,8 +2225,22 @@ function setupKeyboardShortcuts(container) {
             }
         }
 
+        // Selección de jugador por posición (1-7) en lugar de dorsal
+        const modoPosiciones = getPrefs().playerSelectMode === 'posiciones';
+        if (modoPosiciones && /^[1-7]$/.test(key)) {
+            const n = Number(key);
+            const dorsal = findDorsalByPositionKey(n);
+            if (dorsal !== null) {
+                scoutingState.dorsalSeleccionado = dorsal;
+                updateUI();
+            } else {
+                showToast(`⚠️ No se encuentra al jugador de la tecla ${n} (¿hay un único colocador en pista?)`, 'warning');
+            }
+            return;
+        }
+
         // Buffer Dorsal (Números)
-        if (/[0-9]/.test(key)) {
+        if (!modoPosiciones && /[0-9]/.test(key)) {
             clearTimeout(scoutingState.dorsalTimer);
             scoutingState.dorsalInput += key;
             updateUI();
@@ -2016,6 +2265,7 @@ function setupKeyboardShortcuts(container) {
             const command = shortcut;
             if (command.action === 'selectAction') {
                 scoutingState.tipoAccion = command.value;
+                autoSeleccionarSacador();
                 scoutingState.subtipo = null;
                 updateUI();
             } else if (command.action === 'registerTimeout') {
@@ -2147,18 +2397,23 @@ function setupModalsEvents() {
     // 2. Rotación Modal
     const rotModal = document.getElementById('rotacion-modal');
     document.getElementById('btn-close-rotacion')?.addEventListener('click', () => {
+        scoutingState.lineupPendiente = null;
         rotModal.style.display = 'none';
         scoutingState.wizardModalAbierto = false;
     });
 
     document.querySelectorAll('.btn-select-rotacion').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
             const rot = parseInt(e.target.closest('.btn-select-rotacion').dataset.rot);
+            if (scoutingState.lineupPendiente) {
+                await guardarLineupBase(lineupEnBaseR1(scoutingState.lineupPendiente, rot));
+                scoutingState.lineupPendiente = null;
+            }
             scoutingState.rotacionActual = rot;
-            document.getElementById('label-rotacion').textContent = 'R' + rot;
             rotModal.style.display = 'none';
             scoutingState.wizardModalAbierto = false;
-            showToast(`Rotación inicial fijada en R${rot}`, 'success');
+            updateUI();
+            showToast(`Rotación fijada en R${rot}`, 'success');
         });
     });
 
@@ -2276,14 +2531,8 @@ function setupModalsEvents() {
             }
         }
 
-        if (!scoutingState.rotacionesIniciales) scoutingState.rotacionesIniciales = {};
-        scoutingState.rotacionesIniciales[scoutingState.setActual] = newLineup;
-        await window.apiPista.updatePartidoPista(scoutingState.partidoId, {
-            rotaciones_iniciales: JSON.stringify(scoutingState.rotacionesIniciales)
-        });
-
         const colocadores = Object.entries(newLineup).filter(([pos, dorsal]) => {
-            const p = scoutingState.roster.find(r => r.dorsal === dorsal);
+            const p = scoutingState.roster.find(r => Number(r.dorsal) === Number(dorsal));
             return p && p.posicion && p.posicion.toLowerCase() === 'colocador';
         });
 
@@ -2292,12 +2541,16 @@ function setupModalsEvents() {
 
         if (colocadores.length === 1) {
             const [posColocador, dorsalCol] = colocadores[0];
-            // La rotación se identifica por la posición inicial del colocador
-            // en la app: colocador en P5 => R5 (y no R3).
+            // R = posición del colocador (colocador en P6 => R6).
             const rotAuto = parseInt(posColocador, 10) || 1;
+            await guardarLineupBase(lineupEnBaseR1(newLineup, rotAuto));
+            scoutingState.lineupPendiente = null;
             scoutingState.rotacionActual = rotAuto;
             showToast(`✅ Titulares guardados. Rotación R${rotAuto} asignada automáticamente (Colocador #${dorsalCol} en P${posColocador})`, 'success');
         } else {
+            await guardarLineupBase(newLineup);
+            scoutingState.lineupPendiente = newLineup;
+            scoutingState.rotacionActual = 1;
             const subEl = document.getElementById('rotacion-modal-subtitle');
             if (subEl) {
                 if (colocadores.length === 0) {
@@ -2335,7 +2588,12 @@ function setupModalsEvents() {
             return;
         }
 
-        const dorsalEntra = parseInt(valEntra, 10);
+        const dorsalEntra = resolverDorsalEntrada(valEntra);
+        if (dorsalEntra === undefined) return;
+        if (dorsalEntra === null || Number.isNaN(dorsalEntra)) {
+            showToast('Indica el dorsal o el nombre del jugador que entra', 'warning');
+            return;
+        }
         if (dorsalEntra === dorsalSale) {
             showToast('El jugador que entra no puede ser el mismo que sale', 'warning');
             return;
@@ -2354,7 +2612,7 @@ function setupModalsEvents() {
         await window.apiPista.createAccionPista({
             partido_id: scoutingState.partidoId,
             dorsal: dorsalEntra,
-            rotacion: scoutingState.rotacionActual,
+            rotacion: getRotacionEfectiva(),
             tipo_accion: 'cambio',
             subtipo: `🔄 Entra #${dorsalEntra}, Sale #${dorsalSale}`,
             resultado: '+',
@@ -2387,6 +2645,7 @@ function setupModalsEvents() {
         const preview = document.getElementById('vid-preview');
         if (!preview) return;
         const modo = modeSelector?.value || 'filtrar';
+        const puntoEntero = (modo === 'filtrar' || modo === 'aciertos') && !!document.getElementById('vid-punto-entero')?.checked;
         const dorsal = Number(document.getElementById('vid-dorsal')?.value || 0);
         const tipo = document.getElementById('vid-accion')?.value || '';
         const set = Number(document.getElementById('vid-set')?.value || 0);
@@ -2396,6 +2655,7 @@ function setupModalsEvents() {
             if (dorsal) seleccion = seleccion.filter(a => Number(a.dorsal) === dorsal);
             const tipoFinal = modo === 'puntos_ataques' ? 'ataque' : tipo;
             if (tipoFinal) seleccion = seleccion.filter(a => a.tipo_accion === tipoFinal);
+            if (modo === 'aciertos') seleccion = seleccion.filter(a => a.resultado === '#' && ['saque', 'ataque', 'bloqueo'].includes(a.tipo_accion));
         }
         if (!seleccion.length) {
             preview.style.display = 'block';
@@ -2403,19 +2663,22 @@ function setupModalsEvents() {
             return;
         }
         preview.style.display = 'block';
-        preview.innerHTML = `<strong style="font-size:12px;">${seleccion.length} acciones seleccionadas</strong><div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">${seleccion.slice(0, 12).map(a => `<button class="btn btn-sm btn-secondary btn-preview-video" data-time="${a.video_timestamp}" style="padding:4px 7px;">${formatTimestamp(a.video_timestamp)} · ${TIPOS_ACCION_PISTA[a.tipo_accion]?.abbr || a.tipo_accion}</button>`).join('')}${seleccion.length > 12 ? `<span style="font-size:12px; color:var(--text-muted); align-self:center;">+${seleccion.length - 12} más</span>` : ''}</div><p style="font-size:11px; color:var(--text-muted); margin:8px 0 0;">Pulsa un clip para llevar el vídeo a ese punto antes de exportar.</p>`;
+        preview.innerHTML = `<strong style="font-size:12px;">${seleccion.length} acciones seleccionadas${puntoEntero || modo === 'puntos_ataques' ? ' · se exportará el punto entero de cada una' : ''}</strong><div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">${seleccion.slice(0, 12).map(a => `<button class="btn btn-sm btn-secondary btn-preview-video" data-time="${a.video_timestamp}" style="padding:4px 7px;">${formatTimestamp(a.video_timestamp)} · ${TIPOS_ACCION_PISTA[a.tipo_accion]?.abbr || a.tipo_accion}</button>`).join('')}${seleccion.length > 12 ? `<span style="font-size:12px; color:var(--text-muted); align-self:center;">+${seleccion.length - 12} más</span>` : ''}</div><p style="font-size:11px; color:var(--text-muted); margin:8px 0 0;">Pulsa un clip para llevar el vídeo a ese punto antes de exportar.</p>`;
         preview.querySelectorAll('.btn-preview-video').forEach(btn => btn.addEventListener('click', () => seekVideoTo(Number(btn.dataset.time))));
     };
     modeSelector?.addEventListener('change', (e) => {
         if (filtersContainer) {
             filtersContainer.style.display = e.target.value === 'favoritos' ? 'none' : 'flex';
         }
+        const puntoEnteroWrap = document.getElementById('vid-punto-entero-wrap');
+        if (puntoEnteroWrap) puntoEnteroWrap.style.display = ['filtrar', 'aciertos'].includes(e.target.value) ? 'flex' : 'none';
         const dorsalLabel = document.querySelector('label[for="vid-dorsal"]');
         if (dorsalLabel) dorsalLabel.textContent = e.target.value === 'puntos_ataques' ? 'Jugador que ataca' : 'Jugador / Dorsal';
         const accion = document.getElementById('vid-accion');
         if (accion) {
-            accion.disabled = e.target.value === 'puntos_ataques';
+            accion.disabled = ['puntos_ataques', 'aciertos'].includes(e.target.value);
             if (e.target.value === 'puntos_ataques') accion.value = 'ataque';
+            else if (e.target.value === 'aciertos') accion.value = '';
         }
         renderPreview();
     });
@@ -2426,6 +2689,8 @@ function setupModalsEvents() {
         if (template === 'ataques-jugador') {
             modeSelector.value = 'puntos_ataques';
             accion.value = 'ataque';
+        } else if (template === 'aciertos') {
+            modeSelector.value = 'aciertos';
         } else if (template === 'favoritos') {
             modeSelector.value = 'favoritos';
         } else if (template === 'saques' || template === 'recepciones') {
@@ -2435,6 +2700,7 @@ function setupModalsEvents() {
         modeSelector.dispatchEvent(new Event('change'));
     });
     document.getElementById('btn-previsualizar-videos')?.addEventListener('click', renderPreview);
+    document.getElementById('vid-punto-entero')?.addEventListener('change', renderPreview);
 
     if (window.apiPista && window.apiPista.onVideoProgressPista) {
         window.apiPista.onVideoProgressPista((pct) => {
@@ -2449,8 +2715,13 @@ function setupModalsEvents() {
 
     document.getElementById('btn-generar-videos-run')?.addEventListener('click', async () => {
         const btnRun = document.getElementById('btn-generar-videos-run');
-        const modo = modeSelector ? modeSelector.value : 'filtrar';
+        let modo = modeSelector ? modeSelector.value : 'filtrar';
+        // «Punto entero» sobre jugadas filtradas: mismo comportamiento que el modo de puntos completos.
+        const soloAciertos = modo === 'aciertos';
+        if (soloAciertos) modo = 'filtrar';
+        if (modo === 'filtrar' && document.getElementById('vid-punto-entero')?.checked) modo = 'puntos_ataques';
         const filters = { modo };
+        if (soloAciertos) filters.aciertos = true;
 
         const dorsal = document.getElementById('vid-dorsal')?.value;
         const acc = document.getElementById('vid-accion')?.value;
@@ -2460,9 +2731,9 @@ function setupModalsEvents() {
 
         if (modo !== 'favoritos') {
             if (dorsal) filters.dorsal = parseInt(dorsal, 10);
-            if (modo === 'puntos_ataques') {
+            if (modeSelector?.value === 'puntos_ataques') {
                 filters.tipo_accion = 'ataque';
-            } else if (acc) {
+            } else if (acc && !soloAciertos) {
                 filters.tipo_accion = acc;
             }
         }

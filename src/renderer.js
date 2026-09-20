@@ -15,6 +15,17 @@ import { renderModeSelector } from './pages/mode-selector.js';
 import { initTheme, setActiveThemeMode } from './utils/theme.js';
 import { actionForKey } from './utils/keybindings.js';
 
+// Los diálogos nativos de Electron en Windows dejan la ventana sin foco de teclado:
+// tras cerrarlos se lo devolvemos para poder seguir escribiendo en los formularios.
+for (const nombre of ['confirm', 'alert']) {
+    const nativa = window[nombre].bind(window);
+    window[nombre] = (...args) => {
+        const resultado = nativa(...args);
+        setTimeout(() => window.api?.restoreFocus?.().catch(() => {}), 0);
+        return resultado;
+    };
+}
+
 // aplicamos el tema guardado
 initTheme();
 
@@ -33,6 +44,7 @@ async function initPlayaMode() {
         <li><a href="#" data-page="dashboard" class="nav-link active"><span class="nav-icon">📊</span> <span class="nav-label">Dashboard</span></a></li>
         <li><a href="#" data-page="nuevo-partido" class="nav-link"><span class="nav-icon">➕</span> <span class="nav-label">Nuevo Partido</span></a></li>
         <li><a href="#" data-page="jugadores" class="nav-link"><span class="nav-icon">👥</span> <span class="nav-label">Jugadores</span></a></li>
+        <li><a href="#" data-page="ajustes" class="nav-link"><span class="nav-icon">⚙️</span> <span class="nav-label">Ajustes</span></a></li>
     `;
     const settingsLink = document.getElementById('settings-link');
     if (settingsLink) settingsLink.dataset.page = 'ajustes';
@@ -63,6 +75,7 @@ async function initPistaMode() {
         <li><a href="#" data-page="dashboard-pista" class="nav-link active"><span class="nav-icon">📊</span> <span class="nav-label">Dashboard</span></a></li>
         <li><a href="#" data-page="nuevo-partido-pista" class="nav-link"><span class="nav-icon">➕</span> <span class="nav-label">Nuevo Partido</span></a></li>
         <li><a href="#" data-page="equipos-pista" class="nav-link"><span class="nav-icon">🏐</span> <span class="nav-label">Equipos</span></a></li>
+        <li><a href="#" data-page="ajustes-pista" class="nav-link"><span class="nav-icon">⚙️</span> <span class="nav-label">Ajustes</span></a></li>
     `;
     const settingsLink = document.getElementById('settings-link');
     if (settingsLink) settingsLink.dataset.page = 'ajustes-pista';

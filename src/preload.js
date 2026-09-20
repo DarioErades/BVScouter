@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('api', {
+  // devuelve el foco de teclado a la ventana tras un diálogo nativo (confirm/alert)
+  restoreFocus: () => ipcRenderer.invoke('window:restoreFocus'),
   // partidos
   getPartidos: () => ipcRenderer.invoke('partidos:getAll'),
   getPartido: (id) => ipcRenderer.invoke('partidos:getById', id),

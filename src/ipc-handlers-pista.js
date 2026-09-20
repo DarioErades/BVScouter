@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { descargarYtDlp } from './utils/ytdlp-helper.js';
-import { getFfmpegPath } from './utils/ffmpeg-helper.js';
+import { getFfmpegPath, tieneAudio } from './utils/ffmpeg-helper.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -402,7 +402,7 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
 
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: 'Guardar Vídeo',
-    defaultPath: `video_pista_${partidoId}.mp4`,
+    defaultPath: filters.nombre_archivo ? `${String(filters.nombre_archivo).replace(/[^\w.-]+/g, '_')}.mp4` : `video_pista_${partidoId}.mp4`,
     filters: [
       { name: 'Vídeo MP4', extensions: ['mp4'] }
     ]
@@ -416,6 +416,12 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
   if (filters.set_numero) {
     query += ' AND set_numero = ?';
     params.push(parseInt(filters.set_numero, 10));
+  }
+
+  const ids = Array.isArray(filters.ids) ? filters.ids.map(n => parseInt(n, 10)).filter(Number.isInteger) : [];
+  if (ids.length) {
+    query += ` AND id IN (${ids.map(() => '?').join(',')})`;
+    params.push(...ids);
   }
 
   if (filters.modo === 'favoritos') {
@@ -432,6 +438,10 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
     if (filters.resultado) {
       query += ' AND resultado = ?';
       params.push(filters.resultado);
+    }
+    // Aciertos: aces, ataques ganadores y bloqueos punto.
+    if (filters.aciertos) {
+      query += " AND resultado = '#' AND tipo_accion IN ('saque', 'ataque', 'bloqueo')";
     }
   }
   
@@ -498,7 +508,9 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
         }
       });
       if (rally.length) rallies.push(rally);
-      rallies.forEach((group, index) => { grupos[index] = { acciones: group }; });
+      // Con `ids` (botón de guardar de un punto) todo es un único clip.
+      if (ids.length) grupos[0] = { acciones: [...acciones] };
+      else rallies.forEach((group, index) => { grupos[index] = { acciones: group }; });
     } else {
       acciones.forEach(a => {
         const key = `${a.set_numero}_${a.marcador_local}_${a.marcador_rival}`;
@@ -569,17 +581,14 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
       intervals = merged;
   }
 
-  let hasAudio = false;
-  try {
-      const { stdout } = await execFileAsync('ffprobe', [
-        '-v', 'error',
-        '-select_streams', 'a',
-        '-show_entries', 'stream=index',
-        '-of', 'csv=p=0',
-        videoPath
-      ]);
-      hasAudio = stdout.trim().length > 0;
-  } catch(e) {}
+  // Marcador de sets antes de cada set, para mostrarlo junto al marcador del punto.
+  const finSets = db.prepare("SELECT set_numero, resultado FROM acciones_pista WHERE partido_id = ? AND tipo_accion = 'fin_set'").all(partidoId);
+  const setsAntesDe = (setNumero) => {
+    const previos = finSets.filter(f => Number(f.set_numero) < Number(setNumero));
+    return `${previos.filter(f => f.resultado === 'local').length}-${previos.filter(f => f.resultado === 'rival').length}`;
+  };
+
+  const hasAudio = await tieneAudio(videoPath);
 
   const filterFilePath = path.join(os.tmpdir(), `bvscouter_pista_filter_${Date.now()}.txt`);
   let filterGraph = '';
@@ -610,7 +619,8 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
       const duration = interval.end - interval.start;
       ffmpegArgs.push('-ss', interval.start.toFixed(3), '-t', duration.toFixed(3), '-i', videoPath);
 
-      const text = ` ${interval.score} `;
+      const setDelIntervalo = interval.acciones?.[0]?.set_numero;
+      const text = setDelIntervalo ? ` ${String(interval.score).replace(/ /g, "")} (${setsAntesDe(setDelIntervalo)}) ` : ` ${interval.score} `;
       const conMarcador = filters.con_marcador !== false;
       let vFilters = ['setpts=PTS-STARTPTS'];
 

@@ -1,7 +1,7 @@
 import { router } from '../../router.js';
 import { showToast, formatDate, formatTimestamp, escapeHtml } from '../../utils/helpers.js';
 import { TIPOS_ACCION_PISTA, RESULTADOS_PISTA } from '../../utils/constants-pista.js';
-import { calcularStatsPista, detectarPatronesPista } from '../../utils/stats-calculator-pista.js';
+import { calcularStatsPista, calcularTiempoJugadoPista, detectarPatronesPista } from '../../utils/stats-calculator-pista.js';
 import { validarDatosPista } from '../../utils/data-validation-pista.js';
 import { actionsForReview, reviewCategories } from '../../utils/scouting-review.js';
 
@@ -93,6 +93,25 @@ export function registerInformePista() {
                 { ...j, stats: createEmptyStats() };
         });
 
+        let rotacionesIniciales = {};
+        try { rotacionesIniciales = JSON.parse(partido.rotaciones_iniciales || '{}'); } catch (e) { /* sin datos */ }
+        const tiempo = calcularTiempoJugadoPista(acciones, roster, rotacionesIniciales);
+        const filasTiempo = roster
+            .filter(j => tiempo.porJugador[Number(j.dorsal)])
+            .map(j => ({ j, t: tiempo.porJugador[Number(j.dorsal)] }))
+            .sort((x, y) => y.t.puntosJugados - x.t.puntosJugados);
+        const seccionTiempo = `
+                <div class="report-section" style="margin-top: 24px;">
+                    <h2 class="report-section-title">⏱️ Tiempo de juego (puntos jugados)</h2>
+                    ${tiempo.hayDatos && filasTiempo.length ? `
+                    <table class="data-table" style="width: 100%; font-size: 12px; text-align: center; border-collapse: collapse;">
+                        <thead><tr style="background: rgba(255,255,255,0.05);"><th>Nº</th><th style="text-align:left;">Nombre</th><th>Sets</th><th>Puntos jugados</th><th>Ganados</th><th>Perdidos</th><th>Balance</th></tr></thead>
+                        <tbody>${filasTiempo.map(({ j, t }) => `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);"><td><strong>${j.dorsal}</strong></td><td style="text-align:left;">${escapeHtml(j.nombre || j.apellidos || '')}</td><td>${t.sets}</td><td><strong>${t.puntosJugados}</strong></td><td>${t.ganados}</td><td>${t.perdidos}</td><td>${t.ganados - t.perdidos > 0 ? '+' : ''}${t.ganados - t.perdidos}</td></tr>`).join('')}</tbody>
+                    </table>
+                    <p class="report-stat-sublabel" style="margin-top:8px;">Calculado con los titulares de cada set y los cambios registrados. Los líberos no se incluyen.</p>`
+                    : '<p class="report-stat-sublabel">Sin datos: activa «Llevar control de rotaciones» y fija los titulares de cada set para calcularlo.</p>'}
+                </div>`;
+
         const getAdvStat = (obj, prop, def = '0%') => obj && obj[prop] !== undefined ? obj[prop] : def;
         const getStat = (obj, prop, def = 0) => obj && obj[prop] !== undefined ? obj[prop] : def;
 
@@ -140,15 +159,15 @@ export function registerInformePista() {
                     ${calidadDatos.issues.length ? `<div style="padding:14px; border-radius:10px; border:1px solid ${calidadDatos.isValid ? '#f59e0b' : '#ef4444'}; background:${calidadDatos.isValid ? 'rgba(245,158,11,.08)' : 'rgba(239,68,68,.08)'}; margin-bottom:18px;"><strong>${calidadDatos.isValid ? 'Avisos de calidad' : 'Datos que requieren revisión'}</strong><ul style="margin:8px 0 0 18px; color:var(--text-secondary);">${calidadDatos.issues.slice(0, 5).map(issue => `<li>${issue.text}</li>`).join('')}${calidadDatos.issues.length > 5 ? `<li>Y ${calidadDatos.issues.length - 5} incidencias más.</li>` : ''}</ul></div>` : ''}
                     <h2 class="report-section-title">Estadísticas de Jugadores</h2>
                     <div style="overflow-x: auto; margin-bottom: 24px;">
-                        <table class="data-table" style="width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 950px;">
+                        <table class="data-table" style="width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 1150px;">
                             <thead>
                                 <tr style="background: rgba(255,255,255,0.05);">
-                                    <th colspan="6" style="border-right: 1px solid var(--border);">General</th>
+                                    <th colspan="8" style="border-right: 1px solid var(--border);">General</th>
                                     <th colspan="4" style="border-right: 1px solid var(--border);">Puntos</th>
-                                    <th colspan="3" style="border-right: 1px solid var(--border);">Saque</th>
-                                    <th colspan="4" style="border-right: 1px solid var(--border);">Recepción</th>
+                                    <th colspan="5" style="border-right: 1px solid var(--border);">Saque</th>
+                                    <th colspan="5" style="border-right: 1px solid var(--border);">Recepción</th>
                                     <th colspan="5" style="border-right: 1px solid var(--border);">Ataque</th>
-                                    <th>Bloqueo</th>
+                                    <th colspan="2">Bloqueo</th>
                                 </tr>
                                 <tr style="background: rgba(255,255,255,0.02); color: var(--text-secondary); border-bottom: 1px solid var(--border);">
                                     <th style="padding: 6px;">Nº</th>
@@ -156,6 +175,8 @@ export function registerInformePista() {
                                     <th>Sets</th>
                                     <th>Voto</th>
                                     <th>FP</th>
+                                    <th>Aciertos</th>
+                                    <th>Errores</th>
                                     <th style="border-right: 1px solid var(--border);">G-P</th>
                                     <th>Saq</th>
                                     <th>Att</th>
@@ -163,9 +184,12 @@ export function registerInformePista() {
                                     <th style="border-right: 1px solid var(--border);">ERR</th>
                                     <th>Tot</th>
                                     <th>Err</th>
+                                    <th>Pos</th>
+                                    <th>Neg</th>
                                     <th style="border-right: 1px solid var(--border);">Pts</th>
                                     <th>Tot</th>
                                     <th>Err</th>
+                                    <th>Neg</th>
                                     <th>Pos%</th>
                                     <th style="border-right: 1px solid var(--border);">Exc%</th>
                                     <th>Tot</th>
@@ -174,6 +198,7 @@ export function registerInformePista() {
                                     <th>Pts</th>
                                     <th style="border-right: 1px solid var(--border);">Pts%</th>
                                     <th>Pts</th>
+                                    <th>Err</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -184,6 +209,8 @@ export function registerInformePista() {
                                         <td>${Array.isArray(j.stats.setsJugados) ? j.stats.setsJugados.length : getStat(j.stats, 'setsJugados', '-')}</td>
                                         <td><strong>${getStat(j.stats, 'voto', '6.0')}</strong></td>
                                         <td>${getStat(j.stats, 'fasePunto', 0)}</td>
+                                        <td>${getStat(j.stats, 'aciertos', 0)}</td>
+                                        <td>${getStat(j.stats, 'errores', 0)}</td>
                                         <td style="border-right: 1px solid var(--border); font-weight: bold; color: ${getStat(j.stats, 'gMenosP', 0) >= 0 ? 'var(--accent-primary)' : '#ef4444'};">${getStat(j.stats, 'gMenosP', 0) > 0 ? '+' : ''}${getStat(j.stats, 'gMenosP', 0)}</td>
                                         
                                         <td>${getStat(j.stats, 'ptsSaque', 0)}</td>
@@ -193,10 +220,13 @@ export function registerInformePista() {
                                         
                                         <td>${getStat(j.stats, 'saqueTot', 0)}</td>
                                         <td>${getStat(j.stats, 'saqueErr', 0)}</td>
+                                        <td>${getStat(j.stats, 'saquePos', 0)}</td>
+                                        <td>${getStat(j.stats, 'saqueNeg', 0)}</td>
                                         <td style="border-right: 1px solid var(--border);">${getStat(j.stats, 'ptsSaque', 0)}</td>
                                         
                                         <td>${getStat(j.stats, 'recTot', 0)}</td>
                                         <td>${getStat(j.stats, 'recErr', 0)}</td>
+                                        <td>${getStat(j.stats, 'recNeg', 0)}</td>
                                         <td>${getStat(j.stats, 'recPosPct', '0%')}</td>
                                         <td style="border-right: 1px solid var(--border);">${getStat(j.stats, 'recExcPct', '0%')}</td>
                                         
@@ -207,12 +237,15 @@ export function registerInformePista() {
                                         <td style="border-right: 1px solid var(--border);">${getStat(j.stats, 'attPtsPct', '0%')}</td>
                                         
                                         <td>${getStat(j.stats, 'ptsBloqueo', 0)}</td>
+                                        <td>${getStat(j.stats, 'blqErr', 0)}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
                 </div>
+
+                ${seccionTiempo}
 
                 <!-- Salto de página para el PDF -->
                 <div class="pdf-page-break" style="page-break-before: always; break-before: page; margin-top: 32px;"></div>

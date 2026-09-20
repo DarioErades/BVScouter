@@ -216,11 +216,14 @@ function processActionForStats(a, stats) {
     stats.saque.total++;
     if (res === '=') stats.saque.errores++;
     if (res === '#') { stats.saque.puntos++; stats.puntos.saque++; stats.puntos.total++; }
+    if (res === '+') stats.saque.positivos++;
+    if (res === '-' || res === '!') stats.saque.negativos++;
   } 
   else if (a.tipo_accion === 'recepcion') {
     stats.recepcion.total++;
     if (res === '=') stats.recepcion.errores++;
     if (res === '#') stats.recepcion.excelentes++;
+    if (res === '!' || res === '-' || res === '/') stats.recepcion.negativas++;
     if (res === '#' || res === '+') stats.recepcion.positivas++;
   }
   else if (a.tipo_accion === 'ataque') {
@@ -289,6 +292,8 @@ function finalizeStats(stats) {
   stats.saques_puntos = stats.saque.puntos;
   stats.saqueTot = stats.saque.total;
   stats.saqueErr = stats.saque.errores;
+  stats.saquePos = stats.saque.positivos;
+  stats.saqueNeg = stats.saque.negativos;
   stats.ptsSaque = stats.saque.puntos;
 
   stats.recepciones_totales = stats.recepcion.total;
@@ -299,6 +304,7 @@ function finalizeStats(stats) {
     : 0;
   stats.recTot = stats.recepcion.total;
   stats.recErr = stats.recepcion.errores;
+  stats.recNeg = stats.recepcion.negativas;
   stats.recPosPct = stats.recepcion.posPct + '%';
   stats.recExcPct = stats.recepcion.excPct + '%';
 
@@ -315,6 +321,9 @@ function finalizeStats(stats) {
 
   stats.bloqueos_puntos = stats.bloqueo.puntos;
   stats.ptsBloqueo = stats.bloqueo.puntos;
+  stats.blqErr = stats.bloqueo.errores;
+  stats.aciertos = stats.puntos.total;
+  stats.errores = stats._erroresTotales;
 
   stats.errAdversario = stats.puntos.errorAdversario;
   stats.ganados_perdidos = stats.gananciasPerdidas;
@@ -334,8 +343,8 @@ function getEmptyJugadorStats(jugador) {
     gananciasPerdidas: 0,
     _erroresTotales: 0,
     puntos: { saque: 0, ataque: 0, bloqueo: 0, errorAdversario: 0, total: 0 },
-    saque:     { total: 0, errores: 0, puntos: 0 },
-    recepcion: { total: 0, errores: 0, positivas: 0, excelentes: 0, posPct: 0, excPct: 0 },
+    saque:     { total: 0, errores: 0, puntos: 0, positivos: 0, negativos: 0 },
+    recepcion: { total: 0, errores: 0, positivas: 0, excelentes: 0, negativas: 0, posPct: 0, excPct: 0 },
     ataque:    { total: 0, errores: 0, bloqueados: 0, puntos: 0, ptsPct: 0 },
     bloqueo:   { total: 0, errores: 0, puntos: 0 },
     defensa:   { total: 0, errores: 0, positivas: 0, posPct: 0 },
@@ -420,4 +429,75 @@ export function detectarPatronesPista(acciones, roster) {
   }
 
   return patrones;
+}
+
+// Reconstruye la alineación inicial de cada set deshaciendo los cambios, ya que
+// `rotaciones_iniciales` se va sobrescribiendo con cada sustitución.
+function parseCambio(a) {
+  const m = /Entra #(\d+), Sale #(\d+)/.exec(a.subtipo || '');
+  return { entra: m ? Number(m[1]) : Number(a.dorsal), sale: m ? Number(m[2]) : 0 };
+}
+
+function alineacionInicialSet(alineacionFinal, cambiosSet) {
+  const lineup = { ...alineacionFinal };
+  [...cambiosSet].reverse().forEach(c => {
+    const { entra, sale } = parseCambio(c);
+    const slot = Object.keys(lineup).find(k => Number(lineup[k]) === entra);
+    if (slot !== undefined && sale) lineup[slot] = sale;
+  });
+  return lineup;
+}
+
+// Puntos jugados por cada jugador de campo según titulares y cambios. Los líberos
+// se excluyen porque sus entradas y salidas no se registran como cambios.
+export function calcularTiempoJugadoPista(acciones, roster, rotacionesIniciales) {
+  const rotaciones = rotacionesIniciales || {};
+  const esLibero = (dorsal) => {
+    const j = roster.find(r => Number(r.dorsal) === Number(dorsal));
+    return !!j && (!!j.es_libero || /l[ií]bero/i.test(j.posicion || ''));
+  };
+  const porJugador = {};
+  const registro = (d) => (porJugador[d] ||= { sets: new Set(), puntosJugados: 0, ganados: 0, perdidos: 0 });
+  const ordenadas = [...acciones].sort((a, b) => (a.id || 0) - (b.id || 0));
+  const sets = [...new Set(ordenadas.map(a => a.set_numero))];
+  let hayDatos = false;
+
+  sets.forEach(setNum => {
+    const final = rotaciones[setNum];
+    if (!final || !Object.keys(final).length) return;
+    hayDatos = true;
+    const accionesSet = ordenadas.filter(a => a.set_numero === setNum);
+    const inicial = alineacionInicialSet(final, accionesSet.filter(a => a.tipo_accion === 'cambio'));
+    const enPista = new Set(Object.values(inicial).map(Number).filter(d => !esLibero(d)));
+    enPista.forEach(d => registro(d).sets.add(setNum));
+    let local = 0;
+    let rival = 0;
+
+    accionesSet.forEach(a => {
+      if (a.tipo_accion === 'cambio') {
+        const { entra, sale } = parseCambio(a);
+        enPista.delete(sale);
+        if (!esLibero(entra)) {
+          enPista.add(entra);
+          registro(entra).sets.add(setNum);
+        }
+        return;
+      }
+      const nl = Number(a.marcador_local) || 0;
+      const nr = Number(a.marcador_rival) || 0;
+      if (nl + nr === local + rival + 1) {
+        const gana = nl > local ? 'local' : 'rival';
+        enPista.forEach(d => {
+          const p = registro(d);
+          p.puntosJugados++;
+          if (gana === 'local') p.ganados++; else p.perdidos++;
+        });
+      }
+      local = nl;
+      rival = nr;
+    });
+  });
+
+  Object.values(porJugador).forEach(p => { p.sets = p.sets.size; });
+  return { hayDatos, porJugador };
 }

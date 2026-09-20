@@ -10,16 +10,81 @@ import { getFfmpegPath } from './ffmpeg-helper.js';
 const RATE = 22050;
 const FRAME = 1024;
 const HOP = 512;
-const DETECTOR_VERSION = 2;
-// Los silbatos de pista/playa suelen variar mucho según el árbitro y la cámara.
-// Usamos una banda amplia y pasos pequeños para no depender de un tono exacto.
-const FREQUENCIES = Array.from({ length: 19 }, (_, index) => 1100 + index * 250);
+const DETECTOR_VERSION = 3;
 
-function energy(samples, frequency) {
-  const coefficient = 2 * Math.cos((2 * Math.PI * frequency) / RATE);
-  let q0 = 0; let q1 = 0; let q2 = 0;
-  for (const sample of samples) { q0 = coefficient * q1 - q2 + sample; q2 = q1; q1 = q0; }
-  return q1 * q1 + q2 * q2 - coefficient * q1 * q2;
+// Un silbato es un tono agudo casi puro (fundamental entre ~1,5 y ~4,5 kHz) que
+// domina la energía del fotograma y se mantiene al menos MIN_DURATION segundos.
+// La voz, los golpes y la música reparten su energía en muchas frecuencias, por
+// lo que no superan el umbral de pureza.
+const MIN_FREQ = 1500;
+const MAX_FREQ = 4500;
+const PEAK_HALF_WIDTH = 3;       // bins a cada lado del pico (~65 Hz)
+const BAND_LOW = 1000;           // banda donde se mide la pureza: deja fuera el ruido grave del público
+const BAND_HIGH = 6000;
+const MIN_PURITY = 0.5;          // fracción de la energía de la banda concentrada en el pico
+const MIN_MEAN_SQUARE = 100000;  // ~ -40 dBFS: descarta tonos residuales muy débiles
+const MAX_FREQ_JUMP = 500;       // Hz entre fotogramas; los silbatos de bola oscilan
+const MAX_GAP = 0.07;            // s de silencio tolerados dentro de un mismo pitido
+const MIN_DURATION = 0.3;        // s
+const MIN_SEPARATION = 0.8;      // s entre silbatos distintos
+
+const HANN = Float64Array.from({ length: FRAME }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (FRAME - 1)));
+const COS = Float64Array.from({ length: FRAME / 2 }, (_, i) => Math.cos((2 * Math.PI * i) / FRAME));
+const SIN = Float64Array.from({ length: FRAME / 2 }, (_, i) => -Math.sin((2 * Math.PI * i) / FRAME));
+const BIT_REVERSE = (() => {
+  const bits = Math.log2(FRAME);
+  return Uint16Array.from({ length: FRAME }, (_, i) => {
+    let r = 0;
+    for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
+    return r;
+  });
+})();
+
+// FFT radix-2 in situ; devuelve la potencia de los FRAME/2 primeros bins.
+const re = new Float64Array(FRAME);
+const im = new Float64Array(FRAME);
+const power = new Float64Array(FRAME / 2);
+function spectrum(frame) {
+  for (let i = 0; i < FRAME; i++) { re[BIT_REVERSE[i]] = frame[i] * HANN[i]; im[BIT_REVERSE[i]] = 0; }
+  for (let size = 2; size <= FRAME; size <<= 1) {
+    const half = size >> 1;
+    const step = FRAME / size;
+    for (let start = 0; start < FRAME; start += size) {
+      for (let k = 0; k < half; k++) {
+        const c = COS[k * step];
+        const sn = SIN[k * step];
+        const i = start + k;
+        const j = i + half;
+        const tr = re[j] * c - im[j] * sn;
+        const ti = re[j] * sn + im[j] * c;
+        re[j] = re[i] - tr; im[j] = im[i] - ti;
+        re[i] += tr; im[i] += ti;
+      }
+    }
+  }
+  for (let k = 0; k < FRAME / 2; k++) power[k] = re[k] * re[k] + im[k] * im[k];
+  return power;
+}
+
+// Devuelve la frecuencia del tono dominante o 0 si el fotograma no es un silbato.
+function dominantTone(frame) {
+  let meanSquare = 0;
+  for (let i = 0; i < FRAME; i++) meanSquare += frame[i] * frame[i];
+  meanSquare /= FRAME;
+  if (meanSquare < MIN_MEAN_SQUARE) return 0;
+
+  const bins = spectrum(frame);
+  const binHz = RATE / FRAME;
+  const lo = Math.floor(MIN_FREQ / binHz);
+  const hi = Math.ceil(MAX_FREQ / binHz);
+  let peak = lo;
+  for (let k = lo; k <= hi; k++) if (bins[k] > bins[peak]) peak = k;
+
+  let total = 0;
+  for (let k = Math.floor(BAND_LOW / binHz); k <= Math.ceil(BAND_HIGH / binHz); k++) total += bins[k];
+  let tone = 0;
+  for (let k = Math.max(1, peak - PEAK_HALF_WIDTH); k <= Math.min(bins.length - 1, peak + PEAK_HALF_WIDTH); k++) tone += bins[k];
+  return total > 0 && tone / total >= MIN_PURITY ? peak * binHz : 0;
 }
 
 function cachePath(videoPath) {
@@ -54,27 +119,28 @@ export async function detectWhistles(videoPath, onProgress = () => {}) {
 
   const timestamps = await new Promise((resolve, reject) => {
     const process = spawn(getFfmpegPath(), ['-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', String(RATE), '-f', 's16le', 'pipe:1']);
-    let pending = Buffer.alloc(0); let sampleIndex = 0; let candidateStart = null; let lastWhistle = -10;
+    let pending = Buffer.alloc(0); let sampleIndex = 0;
     const found = [];
     let lastProgress = -1;
+    let run = null; // { start, last, freq }
+    const closeRun = () => {
+      if (run && run.last - run.start + FRAME / RATE >= MIN_DURATION && run.start - (found.at(-1) ?? -10) >= MIN_SEPARATION) {
+        found.push(Math.round(run.start * 100) / 100);
+      }
+      run = null;
+    };
     process.stdout.on('data', chunk => {
       pending = Buffer.concat([pending, chunk]);
       while (pending.length >= FRAME * 2) {
-        const frame = new Int16Array(pending.subarray(0, FRAME * 2).buffer, pending.byteOffset, FRAME);
-        let total = 0; for (const value of frame) total += value * value;
-        const band = Math.max(...FREQUENCIES.map(f => energy(frame, f)));
-        const ratio = band / Math.max(total, 1);
+        const frame = new Int16Array(pending.buffer.slice(pending.byteOffset, pending.byteOffset + FRAME * 2));
         const time = sampleIndex / RATE;
-        // Perfil sensible: tonos agudos breves, incluso cuando quedan tapados por público.
-        // El ratio espectral filtra la mayor parte de golpes/voz no tonales.
-        if (ratio > 7 && total / FRAME > 35000) {
-          candidateStart ??= time;
-        } else if (candidateStart !== null) {
-          if (time - candidateStart >= 0.025 && candidateStart - lastWhistle >= 0.35) {
-            const point = Math.round((candidateStart + (time - candidateStart) / 2) * 100) / 100;
-            found.push(point); lastWhistle = point;
-          }
-          candidateStart = null;
+        const freq = dominantTone(frame);
+        if (freq) {
+          if (run && Math.abs(freq - run.freq) > MAX_FREQ_JUMP) closeRun();
+          if (!run) run = { start: time, last: time, freq };
+          run.last = time; run.freq = freq;
+        } else if (run && time - run.last > MAX_GAP) {
+          closeRun();
         }
         pending = pending.subarray(HOP * 2); sampleIndex += HOP;
         if (duration) {
@@ -84,7 +150,10 @@ export async function detectWhistles(videoPath, onProgress = () => {}) {
       }
     });
     process.on('error', reject);
-    process.on('close', code => code === 0 ? resolve(found) : reject(new Error('No se pudo analizar el audio del vídeo')));
+    process.on('close', code => {
+      closeRun();
+      if (code === 0) resolve(found); else reject(new Error('No se pudo analizar el audio del vídeo'));
+    });
   });
   onProgress(100);
   fs.writeFileSync(cache, JSON.stringify({ version: DETECTOR_VERSION, size: stat.size, mtimeMs: stat.mtimeMs, timestamps }));

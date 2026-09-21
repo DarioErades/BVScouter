@@ -13,12 +13,15 @@ let ytCurrentTime = 0;
 let ytState = -1;
 let ytMessageListener = null;
 let ytPollInterval = null;
+let ytReady = false;
+let ytBlurListener = null;
 let whistleTimestamps = [];
 let mouseWhistleHandler = null;
 
 function setupYoutubeTracking() {
     ytCurrentTime = 0;
     ytState = -1;
+    ytReady = false;
 
     if (ytMessageListener) {
         window.removeEventListener('message', ytMessageListener);
@@ -38,6 +41,7 @@ function setupYoutubeTracking() {
         }
         if (!data || typeof data !== 'object') return;
 
+        ytReady = true;
         if (data.info && typeof data.info.currentTime === 'number') {
             ytCurrentTime = data.info.currentTime;
         } else if (typeof data.currentTime === 'number') {
@@ -51,17 +55,32 @@ function setupYoutubeTracking() {
 
     window.addEventListener('message', ytMessageListener);
 
+    // Solo nos "suscribimos" (listening) hasta que el iframe responde; el reproductor
+    // empuja solo currentTime/playerState. Mandar comandos antes de que cargue rompe sus controles.
     ytPollInterval = setInterval(() => {
         const iframe = document.getElementById('yt-iframe-player');
-        if (iframe && iframe.contentWindow) {
-            try {
-                iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*');
-                iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
-            } catch (e) {
-                // ignore
-            }
+        if (!iframe || !iframe.contentWindow) return;
+        if (ytReady) {
+            clearInterval(ytPollInterval);
+            ytPollInterval = null;
+            return;
         }
-    }, 250);
+        try {
+            iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
+        } catch (e) {
+            // ignore
+        }
+    }, 500);
+
+    // el iframe se queda con el foco del teclado y las teclas (P, atajos...) dejan de llegar a la app
+    if (ytBlurListener) window.removeEventListener('blur', ytBlurListener);
+    ytBlurListener = () => {
+        setTimeout(() => {
+            const iframe = document.getElementById('yt-iframe-player');
+            if (iframe && document.activeElement === iframe) window.focus();
+        }, 0);
+    };
+    window.addEventListener('blur', ytBlurListener);
 }
 
 // La rotación R es la posición del colocador (R6 = colocador en P6...). Al rotar el
@@ -135,7 +154,27 @@ export function registerScoutingPista() {
             return;
         }
 
-        const roster = await window.apiPista.getRoster(params.partidoId);
+        let roster = await window.apiPista.getRoster(params.partidoId);
+
+        // Los líberos del equipo que no se añadieron al crear el partido se incorporan al roster.
+        if (partido.equipo_id) {
+            const equipoJugadores = await window.apiPista.getJugadoresByEquipo(partido.equipo_id);
+            const faltan = equipoJugadores.filter(j => j.activo !== 0
+                && (j.es_libero || /l[ií]bero/i.test(j.posicion || ''))
+                && !roster.some(r => Number(r.dorsal) === Number(j.dorsal)));
+            for (const j of faltan) {
+                await window.apiPista.addRosterJugador({
+                    partido_id: params.partidoId,
+                    dorsal: j.dorsal,
+                    nombre: j.nombre || '',
+                    apellidos: j.apellidos || '',
+                    posicion: j.posicion || 'Líbero',
+                    es_libero: 1,
+                    jugador_pista_id: j.id
+                });
+            }
+            if (faltan.length > 0) roster = await window.apiPista.getRoster(params.partidoId);
+        }
         const acciones = await window.apiPista.getAccionesPista(params.partidoId);
 
         let rotIniciales = {};
@@ -164,8 +203,13 @@ export function registerScoutingPista() {
             dorsalInput: '',
             dorsalTimer: null,
             wizardModalAbierto: false,
-            editingActionId: null
+            editingActionId: null,
+            liberoActivo: null,
+            liberoDefensa: null,
+            liberoRecepcion: null,
+            liberoSaqueAplicado: null
         };
+        cargarLiberos();
 
         if (acciones.length > 0) {
             const ultima = acciones[acciones.length - 1];
@@ -528,11 +572,13 @@ async function createOrGetPlayerByDorsal(dorsal) {
     if (player) return player;
 
     let jugadorPistaId = null;
+    let datosEquipo = null;
     if (scoutingState.partido.equipo_id) {
         const equipoJugadores = await window.apiPista.getJugadoresByEquipo(scoutingState.partido.equipo_id);
         const enEquipo = equipoJugadores.find(j => j.dorsal === dorsal);
         if (enEquipo) {
             jugadorPistaId = enEquipo.id;
+            datosEquipo = enEquipo;
         } else {
             const res = await window.apiPista.createJugadorPista({
                 equipo_id: scoutingState.partido.equipo_id,
@@ -549,10 +595,10 @@ async function createOrGetPlayerByDorsal(dorsal) {
     await window.apiPista.addRosterJugador({
         partido_id: scoutingState.partidoId,
         dorsal: dorsal,
-        nombre: 'Jugador',
-        apellidos: `#${dorsal}`,
-        posicion: '',
-        es_libero: 0,
+        nombre: datosEquipo?.nombre || 'Jugador',
+        apellidos: datosEquipo ? (datosEquipo.apellidos || '') : `#${dorsal}`,
+        posicion: datosEquipo?.posicion || '',
+        es_libero: datosEquipo?.es_libero ? 1 : 0,
         jugador_pista_id: jugadorPistaId
     });
 
@@ -631,8 +677,21 @@ function openCambioModal() {
     scoutingState.wizardModalAbierto = true;
 }
 
+// Plantillas del generador de vídeos: cada una fija el modo, la acción y qué filtros se muestran.
+const PLANTILLAS_VIDEO = {
+    puntos_jugador: { icono: '🏐', titulo: 'Puntos de un jugador', desc: 'El punto completo cada vez que ataca', modo: 'puntos_ataques', tipo: 'ataque', jugador: true },
+    aciertos: { icono: '🔥', titulo: 'Aciertos de un jugador', desc: 'Aces, ataques ganadores y bloqueos punto', modo: 'filtrar', aciertos: true, jugador: true },
+    saques: { icono: '🎯', titulo: 'Saques', desc: 'Todos los saques de un jugador', modo: 'filtrar', tipo: 'saque', jugador: true },
+    recepciones: { icono: '🛡️', titulo: 'Recepciones', desc: 'Todas las recepciones de un jugador', modo: 'filtrar', tipo: 'recepcion', jugador: true },
+    todos_puntos: { icono: '📼', titulo: 'Todos los puntos', desc: 'Todos los rallies, del partido o de un set', modo: 'puntos' },
+    favoritos: { icono: '⭐', titulo: 'Favoritos', desc: 'Sólo los puntos marcados como favoritos', modo: 'favoritos' },
+    personalizado: { icono: '⚙️', titulo: 'Personalizado', desc: 'Elige jugador, acción y set', modo: 'filtrar', jugador: true, accion: true, puntoEntero: true }
+};
+
 function isPlayerLibero(j) {
-    if (!j || !j.posicion) return false;
+    if (!j) return false;
+    if (j.es_libero) return true;
+    if (!j.posicion) return false;
     const pos = j.posicion.trim().toLowerCase();
     return pos === 'líbero' || pos === 'libero' || pos === 'l';
 }
@@ -644,6 +703,83 @@ function getDorsalesEnCampo() {
 
 function getLiberosRoster() {
     return scoutingState.roster.filter(j => isPlayerLibero(j));
+}
+
+// Líbero activo (el que usa la tecla 7), y líberos fijados para defensa (saque nuestro)
+// y recepción (saque rival). Se guardan por partido en localStorage.
+const claveLiberos = () => `pista-liberos-${scoutingState.partidoId}`;
+
+function cargarLiberos() {
+    try {
+        const g = JSON.parse(localStorage.getItem(claveLiberos()) || '{}');
+        scoutingState.liberoActivo = g.activo ?? null;
+        scoutingState.liberoDefensa = g.defensa ?? null;
+        scoutingState.liberoRecepcion = g.recepcion ?? null;
+    } catch (e) {
+        // sin almacenamiento: se queda en el valor por defecto
+    }
+}
+
+function guardarLiberos() {
+    try {
+        localStorage.setItem(claveLiberos(), JSON.stringify({
+            activo: scoutingState.liberoActivo,
+            defensa: scoutingState.liberoDefensa,
+            recepcion: scoutingState.liberoRecepcion
+        }));
+    } catch (e) {
+        // ignore
+    }
+}
+
+function getLiberoActivo() {
+    const liberos = getLiberosRoster();
+    return (liberos.find(j => Number(j.dorsal) === Number(scoutingState.liberoActivo)) || liberos[0])?.dorsal ?? null;
+}
+
+// Cada vez que cambia quién saca, el líbero activo pasa a ser el de defensa (saque nuestro)
+// o el de recepción (saque rival), si están asignados.
+function aplicarLiberoPorSaque() {
+    const equipo = scoutingState.equipoAlSaque;
+    if (scoutingState.liberoSaqueAplicado === equipo) return;
+    scoutingState.liberoSaqueAplicado = equipo;
+    const asignado = equipo === 'local' ? scoutingState.liberoDefensa : scoutingState.liberoRecepcion;
+    if (asignado != null) scoutingState.liberoActivo = asignado;
+}
+
+function menuLibero(x, y, dorsal) {
+    document.getElementById('libero-menu')?.remove();
+    const menu = document.createElement('div');
+    menu.id = 'libero-menu';
+    menu.style.cssText = `position:fixed; left:${x}px; top:${y}px; z-index:10000; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:4px; display:flex; flex-direction:column; min-width:230px; box-shadow:0 8px 24px rgba(0,0,0,.5);`;
+    const opciones = [
+        { id: 'activo', txt: `Usar ahora (#${dorsal})` },
+        { id: 'defensa', txt: 'Líbero de defensa (saque nuestro)', on: Number(scoutingState.liberoDefensa) === Number(dorsal) },
+        { id: 'recepcion', txt: 'Líbero de recepción (saque rival)', on: Number(scoutingState.liberoRecepcion) === Number(dorsal) }
+    ];
+    menu.innerHTML = opciones.map(o => `<button class="btn btn-secondary" data-op="${o.id}" style="text-align:left; border:none; padding:8px 10px;">${o.on ? '✓ ' : ''}${o.txt}</button>`).join('');
+    const cerrar = (e) => {
+        if (menu.contains(e.target)) return;
+        menu.remove();
+        document.removeEventListener('mousedown', cerrar, true);
+    };
+    menu.addEventListener('click', (e) => {
+        const op = e.target.closest('[data-op]')?.dataset.op;
+        if (!op) return;
+        const clave = op === 'defensa' ? 'liberoDefensa' : op === 'recepcion' ? 'liberoRecepcion' : null;
+        if (clave) {
+            scoutingState[clave] = Number(scoutingState[clave]) === Number(dorsal) ? null : dorsal;
+            scoutingState.liberoSaqueAplicado = null; // reaplica según quién saca ahora
+        } else {
+            scoutingState.liberoActivo = dorsal;
+        }
+        guardarLiberos();
+        menu.remove();
+        document.removeEventListener('mousedown', cerrar, true);
+        updateUI();
+    });
+    document.body.appendChild(menu);
+    document.addEventListener('mousedown', cerrar, true);
 }
 
 function renderDorsalesGrid() {
@@ -670,12 +806,22 @@ function renderDorsalesGrid() {
     }
 
     if (jugadoresLiberos.length > 0) {
-        html += jugadoresLiberos.map(j => `
-            <button class="dorsal-btn dorsal-libero ${scoutingState.dorsalSeleccionado === j.dorsal ? 'active' : ''}" data-dorsal="${j.dorsal}" style="padding:8px; border-radius:6px; background:#78350f; border:2px solid #f59e0b; color:white; cursor:pointer; display:flex; flex-direction:column; align-items:center; transition:0.2s;">
-                <span style="font-size:1.2rem; font-weight:bold; color:#fef08a;">${j.dorsal}</span>
-                <span style="font-size:0.7rem; color:#fde68a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-align:center;">${j.apellidos || j.nombre} (L)</span>
-            </button>
-        `).join('');
+        const activo = getLiberoActivo();
+        html += jugadoresLiberos.map(j => {
+            const esActivo = Number(j.dorsal) === Number(activo);
+            const marcas = [
+                Number(scoutingState.liberoDefensa) === Number(j.dorsal) ? 'D' : '',
+                Number(scoutingState.liberoRecepcion) === Number(j.dorsal) ? 'R' : ''
+            ].filter(Boolean).join('/');
+            const [fondo, borde, num, txt] = esActivo
+                ? ['#065f46', '#34d399', '#d1fae5', '#a7f3d0']
+                : ['#78350f', '#f59e0b', '#fef08a', '#fde68a'];
+            return `
+            <button class="dorsal-btn dorsal-libero ${esActivo ? 'libero-activo' : ''} ${scoutingState.dorsalSeleccionado === j.dorsal ? 'active' : ''}" data-dorsal="${j.dorsal}" data-libero="1" title="Clic derecho: líbero de defensa / recepción" style="padding:8px; border-radius:6px; background:${fondo}; border:2px solid ${borde}; color:white; cursor:pointer; display:flex; flex-direction:column; align-items:center; transition:0.2s;">
+                <span style="font-size:1.2rem; font-weight:bold; color:${num};">${j.dorsal}</span>
+                <span style="font-size:0.7rem; color:${txt}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-align:center;">${j.apellidos || j.nombre} (L${marcas ? ' · ' + marcas : ''})</span>
+            </button>`;
+        }).join('');
     }
 
     return html;
@@ -912,83 +1058,84 @@ function renderModals() {
 
         <!-- Modal Generador de Vídeos -->
         <div class="attack-modal" id="videos-modal" style="display: none;">
-            <div class="notes-modal-content" style="max-width: 500px;">
+            <div class="notes-modal-content" style="max-width: 640px; max-height: 92vh; display:flex; flex-direction:column;">
                 <div class="notes-header">
                     <h3>🎬 Generador de Vídeos</h3>
                     <button id="btn-close-videos" class="btn btn-sm btn-secondary">✖</button>
                 </div>
-                <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+                <div style="padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;">
                     <div>
-                        <label class="form-label" style="display:block; margin-bottom: 4px;">Modo de Generación</label>
-                        <select id="vid-generar-modo" class="form-input pista-select" style="width: 100%;">
-                            <option value="filtrar">Filtrar jugadas específicas por jugador/acción</option>
-                            <option value="puntos_ataques">Punto completo cuando ataque un jugador</option>
-                            <option value="aciertos">Todos los aciertos de un jugador (aces, ataques y bloqueos punto)</option>
-                            <option value="favoritos">Sólo jugadas marcadas como Favoritas ⭐</option>
-                        </select>
+                        <label class="form-label" style="display:block; margin-bottom: 8px;">¿Qué quieres exportar?</label>
+                        <div id="vid-plantillas" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:8px;">
+                            ${Object.entries(PLANTILLAS_VIDEO).map(([id, p]) => `
+                                <button type="button" class="vid-tpl" data-tpl="${id}" style="text-align:left; padding:10px 12px; border-radius:8px; border:2px solid #334155; background:#0f172a; color:white; cursor:pointer; display:flex; flex-direction:column; gap:3px; transition:border-color .15s, background .15s;">
+                                    <span style="font-size:18px;">${p.icono}</span>
+                                    <span style="font-weight:700; font-size:13px;">${p.titulo}</span>
+                                    <span style="font-size:11px; color:#94a3b8;">${p.desc}</span>
+                                </button>`).join('')}
+                        </div>
                     </div>
-                    <div>
-                        <label class="form-label" style="display:block; margin-bottom: 4px;">Plantilla rápida</label>
-                        <select id="vid-plantilla" class="form-input pista-select" style="width:100%;">
-                            <option value="">Configurar manualmente</option>
-                            <option value="ataques-jugador">Puntos completos de ataques de un jugador</option>
-                            <option value="aciertos">Todos los aciertos de un jugador</option>
-                            <option value="saques">Todos los saques de un jugador</option>
-                            <option value="recepciones">Todas las recepciones de un jugador</option>
-                            <option value="favoritos">Rallies favoritos</option>
-                        </select>
-                    </div>
-                    
+
                     <div id="vid-filtros-container" style="display: flex; flex-direction: column; gap: 12px;">
                         <div style="display: flex; gap: 12px;">
-                            <div style="flex: 1;">
-                                <label for="vid-dorsal" class="form-label" style="display:block; margin-bottom: 4px;">Jugador / Dorsal</label>
+                            <div id="vid-grupo-dorsal" style="flex: 1;">
+                                <label for="vid-dorsal" class="form-label" style="display:block; margin-bottom: 4px;">Jugador</label>
                                 <select id="vid-dorsal" class="form-input pista-select" style="width: 100%;">
                                     <option value="">Todos los jugadores</option>
                                     ${scoutingState.roster.map(j => `<option value="${j.dorsal}">#${j.dorsal} - ${j.apellidos || j.nombre}</option>`).join('')}
                                 </select>
                             </div>
-                            <div style="flex: 1;">
-                                <label class="form-label" style="display:block; margin-bottom: 4px;">Tipo de Acción</label>
+                            <div id="vid-grupo-accion" style="flex: 1;">
+                                <label class="form-label" style="display:block; margin-bottom: 4px;">Tipo de acción</label>
                                 <select id="vid-accion" class="form-input pista-select" style="width: 100%;">
                                     <option value="">Cualquier acción</option>
                                     ${Object.entries(TIPOS_ACCION_PISTA).filter(([k]) => k !== 'cambio').map(([k, c]) => `<option value="${k}">${c.label}</option>`).join('')}
                                 </select>
                             </div>
+                            <div id="vid-grupo-set" style="flex: 1;">
+                                <label class="form-label" style="display:block; margin-bottom: 4px;">Set</label>
+                                <select id="vid-set" class="form-input pista-select" style="width: 100%;">
+                                    <option value="">Todos los sets</option>
+                                    ${[1,2,3,4,5].map(s => `<option value="${s}">Set ${s}</option>`).join('')}
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label class="form-label" style="display:block; margin-bottom: 4px;">Set</label>
-                            <select id="vid-set" class="form-input pista-select" style="width: 100%;">
-                                <option value="">Todos los sets</option>
-                                ${[1,2,3,4,5].map(s => `<option value="${s}">Set ${s}</option>`).join('')}
-                            </select>
-                        </div>
+                        <label id="vid-punto-entero-wrap" style="display:none; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+                            <input type="checkbox" id="vid-punto-entero">
+                            <span>Exportar el punto entero de cada jugada (el rally completo, no solo la acción)</span>
+                        </label>
                     </div>
-
-                    <label id="vid-punto-entero-wrap" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
-                        <input type="checkbox" id="vid-punto-entero">
-                        <span>Exportar el punto entero de cada jugada (el rally completo, no solo la acción)</span>
-                    </label>
 
                     <div style="display: flex; gap: 12px;">
                         <div style="flex: 1;">
-                            <label class="form-label" style="display:block; margin-bottom: 4px;">Segundos Pre-jugada</label>
-                            <input type="number" id="vid-margin-pre" class="form-input" value="3" min="1" max="10" style="width: 100%;">
+                            <label class="form-label" style="display:block; margin-bottom: 4px;">Segundos antes de la jugada</label>
+                            <input type="number" id="vid-margin-pre" class="form-input" value="4" min="0" max="20" step="0.5" style="width: 100%;">
                         </div>
                         <div style="flex: 1;">
-                            <label class="form-label" style="display:block; margin-bottom: 4px;">Segundos Post-jugada</label>
-                            <input type="number" id="vid-margin-post" class="form-input" value="2" min="1" max="10" style="width: 100%;">
+                            <label class="form-label" style="display:block; margin-bottom: 4px;">Segundos después de la jugada</label>
+                            <input type="number" id="vid-margin-post" class="form-input" value="4" min="0" max="20" step="0.5" style="width: 100%;">
                         </div>
                     </div>
 
-                    <div id="vid-progress-container" style="display: none; margin-top: 8px;">
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+                            <input type="checkbox" id="vid-con-marcador" checked>
+                            <span>Mostrar el marcador en el vídeo</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+                            <input type="checkbox" id="vid-mostrar-acciones">
+                            <span>Mostrar la lista de acciones del punto</span>
+                        </label>
+                    </div>
+
+                    <div id="vid-preview" style="display:block; border:1px solid var(--border); border-radius:8px; padding:10px; background:rgba(15,23,42,.45);"></div>
+
+                    <div id="vid-progress-container" style="display: none;">
                         <div style="background: #1e293b; border-radius: 4px; height: 16px; overflow: hidden; border: 1px solid #334155;">
                             <div id="vid-progress-bar" style="background: var(--accent-primary); width: 0%; height: 100%; transition: width 0.3s;"></div>
                         </div>
                         <div id="vid-progress-text" style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 4px;">0%</div>
                     </div>
-                    <div id="vid-preview" style="display:none; border:1px solid var(--border); border-radius:8px; padding:10px; background:rgba(15,23,42,.45);"></div>
-                    <button id="btn-previsualizar-videos" class="btn btn-secondary" type="button" style="width:100%;">▶ Previsualizar selección</button>
                 </div>
                 <div class="notes-footer">
                     <button id="btn-generar-videos-run" class="btn btn-primary" style="width: 100%;">🚀 Exportar Vídeo Resumen</button>
@@ -1103,7 +1250,7 @@ function getVideoTimestamp() {
     if (video) return video.currentTime;
     const iframe = document.getElementById('yt-iframe-player');
     if (iframe) {
-        if (!ytPollInterval) {
+        if (!ytMessageListener) {
             setupYoutubeTracking();
         }
         return ytCurrentTime || 0;
@@ -1143,7 +1290,7 @@ function setupVideoPlayer(container) {
                 document.querySelector('.scouting-layout')?.classList.remove('youtube-choice-active');
                 videoContainer.innerHTML = `
                     <div style="position:relative; width:100%; height:100%; aspect-ratio:16/9; background:#000;">
-                        <iframe id="yt-iframe-player" src="https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
+                        <iframe id="yt-iframe-player" src="https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1&controls=1&playsinline=1&origin=${encodeURIComponent(location.origin)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
                     </div>
                 `;
                 showToast('Reproduciendo Streaming directo de YouTube', 'success');
@@ -1345,8 +1492,18 @@ function setupActionPanelEvents(container) {
         const btn = e.target.closest('.dorsal-btn');
         if (btn) {
             scoutingState.dorsalSeleccionado = parseInt(btn.dataset.dorsal);
+            if (btn.dataset.libero) {
+                scoutingState.liberoActivo = scoutingState.dorsalSeleccionado;
+                guardarLiberos();
+            }
             updateUI();
         }
+    });
+    dorsalGrid.addEventListener('contextmenu', (e) => {
+        const btn = e.target.closest('.dorsal-btn[data-libero]');
+        if (!btn) return;
+        e.preventDefault();
+        menuLibero(e.clientX, e.clientY, parseInt(btn.dataset.dorsal));
     });
 
     // Acciones
@@ -1588,6 +1745,10 @@ function limpiarShortcuts() {
         clearInterval(ytPollInterval);
         ytPollInterval = null;
     }
+    if (ytBlurListener) {
+        window.removeEventListener('blur', ytBlurListener);
+        ytBlurListener = null;
+    }
 }
 
 async function updateScore(team, delta) {
@@ -1624,7 +1785,10 @@ function updateUI() {
         if (pBtnSet) pBtnSet.textContent = scoutingState.setActual;
     }
 
-    // Dorsales
+    // Dorsales (los líberos se repintan: activo, defensa y recepción cambian con el saque)
+    aplicarLiberoPorSaque();
+    const gridDorsales = document.getElementById('dorsal-grid');
+    if (gridDorsales && getLiberosRoster().length > 0) gridDorsales.innerHTML = renderDorsalesGrid();
     document.querySelectorAll('.dorsal-btn').forEach(b => {
         b.classList.toggle('active', parseInt(b.dataset.dorsal) === scoutingState.dorsalSeleccionado);
     });
@@ -1730,6 +1894,30 @@ function updateUI() {
     }
 }
 
+// La primera acción de un punto debe ser el saque si sacamos nosotros, o la recepción si saca
+// el rival. Si no lo es, se avisa (probable saque sin apuntar o saque mal marcado).
+function confirmarInicioDePunto() {
+    const tipo = scoutingState.tipoAccion;
+    if (['rival', 'error_general', 'cambio', 'tiempo_muerto', 'fin_set'].includes(tipo)) return true;
+
+    const previas = (scoutingState.acciones || []).filter(a =>
+        Number(a.set_numero) === Number(scoutingState.setActual)
+        && !['cambio', 'tiempo_muerto', 'fin_set'].includes(a.tipo_accion));
+    const ultima = previas[previas.length - 1];
+    const primeraDelPunto = !ultima
+        || (Number(ultima.marcador_local) + Number(ultima.marcador_rival)
+            !== Number(ultima.marcador_pre_local) + Number(ultima.marcador_pre_rival));
+    if (!primeraDelPunto) return true;
+
+    const sacamos = scoutingState.equipoAlSaque === 'local';
+    const esperada = sacamos ? 'saque' : 'recepcion';
+    if (tipo === esperada) return true;
+
+    return confirm(sacamos
+        ? '⚠️ Sacamos nosotros, pero la primera acción del punto no es un saque.\n¿Guardarla igualmente?\n(Si en realidad saca el rival, cancela y cambia el saque con el 🏐 del marcador.)'
+        : '⚠️ Saca el rival, pero la primera acción del punto no es una recepción.\n¿Guardarla igualmente?\n(Si en realidad sacamos nosotros, cancela y cambia el saque con el 🏐 del marcador.)');
+}
+
 async function guardarAccion(resultado) {
     if (isRotationPending()) {
         showToast(`⚠️ No puedes registrar stats en el Set ${scoutingState.setActual} hasta que configures la rotación inicial`, 'warning');
@@ -1749,6 +1937,8 @@ async function guardarAccion(resultado) {
             return;
         }
     }
+
+    if (!confirmarInicioDePunto()) return;
 
     const time = getVideoTimestamp();
     const rotacionAccion = scoutingState.rotacionActual;
@@ -1982,6 +2172,7 @@ function renderTimelinePista() {
                     ${a.tipo_accion === 'ataque' && /zaguero/i.test(a.subtipo || '') ? '<span style="color:#facc15; font-weight:800;">ZAG</span>' : ''}
                     ${resBadge}
                     <div style="margin-left: auto; display: flex; gap: 4px;">
+                        <button class="btn-minus-second" data-action-id="${a.id}" title="Restar 1 segundo al tiempo de la acción" style="background:none; border:1px solid var(--border-color, #334155); border-radius:4px; cursor:pointer; font-size:0.75rem; color:var(--text-secondary); padding:0 5px;">-1s</button>
                         <button class="btn-edit-action" data-action-id="${a.id}" title="Editar Acción" style="background:none; border:none; cursor:pointer;">✏️</button>
                         <button class="btn-delete-action" data-action-id="${a.id}" title="Eliminar Acción" style="background:none; border:none; cursor:pointer; font-size:1.1rem; color:var(--text-secondary);">×</button>
                     </div>
@@ -2010,6 +2201,20 @@ function refreshTimelineAndStats() {
             if (!confirm('¿Seguro que quieres eliminar esta acción?')) return;
             await window.apiPista.deleteAccionPista(id);
             scoutingState.acciones = scoutingState.acciones.filter(a => a.id !== id);
+            refreshTimelineAndStats();
+        });
+    });
+
+    // restar un segundo al tiempo de la acción (por si se tardó en apuntarla)
+    container.querySelectorAll('.btn-minus-second').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const id = parseInt(btn.dataset.actionId, 10);
+            const accion = scoutingState.acciones.find(a => a.id === id);
+            if (!accion) return;
+            const nuevo = Math.max(0, Number(accion.video_timestamp || 0) - 1);
+            await window.apiPista.updateAccionPista(id, { video_timestamp: nuevo });
+            accion.video_timestamp = nuevo;
             refreshTimelineAndStats();
         });
     });
@@ -2074,7 +2279,7 @@ function refreshTimelineAndStats() {
             showToast('Preparando el vídeo del punto...', 'info');
             try {
                 const ruta = await window.apiPista.generateVideoHighlightsPista(scoutingState.partidoId, {
-                    modo: 'puntos', ids, pre_margin: 3, post_margin: 2,
+                    modo: 'puntos', ids, pre_margin: 4, post_margin: 4,
                     nombre_archivo: `punto_${scoutingState.setActual}_${btn.dataset.score}`
                 });
                 if (ruta) showToast('Vídeo del punto guardado', 'success');
@@ -2139,9 +2344,17 @@ const TECLAS_POSICION = {
 
 function findDorsalByPositionKey(n) {
     if (n === 7) {
+        // con dos líberos, pulsar 7 estando ya elegido el activo pasa al otro
         const liberos = getLiberosRoster();
-        const enCampo = getDorsalesEnCampo();
-        return (liberos.find(j => enCampo.includes(Number(j.dorsal))) || liberos[0])?.dorsal ?? null;
+        const activo = getLiberoActivo();
+        if (liberos.length > 1 && Number(scoutingState.dorsalSeleccionado) === Number(activo)) {
+            const i = liberos.findIndex(j => Number(j.dorsal) === Number(activo));
+            scoutingState.liberoActivo = liberos[(i + 1) % liberos.length].dorsal;
+            guardarLiberos();
+        } else {
+            scoutingState.liberoActivo = activo;
+        }
+        return scoutingState.liberoActivo;
     }
     const def = TECLAS_POSICION[n];
     if (!def) return null;
@@ -2638,69 +2851,85 @@ function setupModalsEvents() {
         scoutingState.wizardModalAbierto = false;
     });
 
-    const modeSelector = document.getElementById('vid-generar-modo');
-    const filtersContainer = document.getElementById('vid-filtros-container');
-    const templateSelector = document.getElementById('vid-plantilla');
+    const esFinalDePunto = (a) => {
+        if (['tiempo_muerto', 'cambio'].includes(a.tipo_accion)) return false;
+        if (a.tipo_accion === 'rival' || a.tipo_accion === 'error_general') return true;
+        if (['recepcion', 'defensa', 'colocacion', 'freeball'].includes(a.tipo_accion)) return a.resultado === '=';
+        return ['#', '=', '/'].includes(a.resultado);
+    };
+
+    let plantillaVideo = 'puntos_jugador';
+    const cfgPlantilla = () => PLANTILLAS_VIDEO[plantillaVideo] || PLANTILLAS_VIDEO.personalizado;
+    const leerCampo = (id) => document.getElementById(id)?.value || '';
+
+    // Acciones que entran en el vídeo según la plantilla y los filtros elegidos.
+    const seleccionarAcciones = () => {
+        const cfg = cfgPlantilla();
+        const dorsal = cfg.jugador ? Number(leerCampo('vid-dorsal') || 0) : 0;
+        const tipo = cfg.accion ? leerCampo('vid-accion') : (cfg.tipo || '');
+        const set = Number(leerCampo('vid-set') || 0);
+        let sel = scoutingState.acciones.filter(a => a.video_timestamp > 0 && (!set || Number(a.set_numero) === set));
+        if (cfg.modo === 'favoritos') return sel.filter(a => a.es_favorito);
+        if (cfg.modo === 'puntos') return sel.filter(esFinalDePunto);
+        if (dorsal) sel = sel.filter(a => Number(a.dorsal) === dorsal);
+        if (tipo) sel = sel.filter(a => a.tipo_accion === tipo);
+        if (cfg.aciertos) sel = sel.filter(a => a.resultado === '#' && ['saque', 'ataque', 'bloqueo'].includes(a.tipo_accion));
+        return sel;
+    };
+
+    const puntoEnteroActivo = () => {
+        const cfg = cfgPlantilla();
+        return cfg.modo === 'puntos_ataques' || (cfg.puntoEntero && !!document.getElementById('vid-punto-entero')?.checked);
+    };
+
     const renderPreview = () => {
         const preview = document.getElementById('vid-preview');
         if (!preview) return;
-        const modo = modeSelector?.value || 'filtrar';
-        const puntoEntero = (modo === 'filtrar' || modo === 'aciertos') && !!document.getElementById('vid-punto-entero')?.checked;
-        const dorsal = Number(document.getElementById('vid-dorsal')?.value || 0);
-        const tipo = document.getElementById('vid-accion')?.value || '';
-        const set = Number(document.getElementById('vid-set')?.value || 0);
-        let seleccion = scoutingState.acciones.filter(a => a.video_timestamp > 0 && (!set || Number(a.set_numero) === set));
-        if (modo === 'favoritos') seleccion = seleccion.filter(a => a.es_favorito);
-        else {
-            if (dorsal) seleccion = seleccion.filter(a => Number(a.dorsal) === dorsal);
-            const tipoFinal = modo === 'puntos_ataques' ? 'ataque' : tipo;
-            if (tipoFinal) seleccion = seleccion.filter(a => a.tipo_accion === tipoFinal);
-            if (modo === 'aciertos') seleccion = seleccion.filter(a => a.resultado === '#' && ['saque', 'ataque', 'bloqueo'].includes(a.tipo_accion));
-        }
+        const cfg = cfgPlantilla();
+        const seleccion = seleccionarAcciones();
         if (!seleccion.length) {
-            preview.style.display = 'block';
-            preview.innerHTML = '<span style="color:var(--text-muted);">No hay acciones con vídeo para esta selección.</span>';
+            preview.innerHTML = '<span style="color:var(--text-muted); font-size:13px;">No hay jugadas con tiempo de vídeo para esta selección.</span>';
             return;
         }
-        preview.style.display = 'block';
-        preview.innerHTML = `<strong style="font-size:12px;">${seleccion.length} acciones seleccionadas${puntoEntero || modo === 'puntos_ataques' ? ' · se exportará el punto entero de cada una' : ''}</strong><div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">${seleccion.slice(0, 12).map(a => `<button class="btn btn-sm btn-secondary btn-preview-video" data-time="${a.video_timestamp}" style="padding:4px 7px;">${formatTimestamp(a.video_timestamp)} · ${TIPOS_ACCION_PISTA[a.tipo_accion]?.abbr || a.tipo_accion}</button>`).join('')}${seleccion.length > 12 ? `<span style="font-size:12px; color:var(--text-muted); align-self:center;">+${seleccion.length - 12} más</span>` : ''}</div><p style="font-size:11px; color:var(--text-muted); margin:8px 0 0;">Pulsa un clip para llevar el vídeo a ese punto antes de exportar.</p>`;
+        const nota = cfg.modo === 'puntos'
+            ? `${seleccion.length} puntos`
+            : `${seleccion.length} jugadas${puntoEnteroActivo() ? ' · se exportará el punto entero de cada una' : ''}`;
+        preview.innerHTML = `<strong style="font-size:12px;">${nota}</strong>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">${seleccion.slice(0, 12).map(a => `<button type="button" class="btn btn-sm btn-secondary btn-preview-video" data-time="${a.video_timestamp}" style="padding:4px 7px;">${formatTimestamp(a.video_timestamp)} · ${TIPOS_ACCION_PISTA[a.tipo_accion]?.abbr || a.tipo_accion}</button>`).join('')}${seleccion.length > 12 ? `<span style="font-size:12px; color:var(--text-muted); align-self:center;">+${seleccion.length - 12} más</span>` : ''}</div>
+            <p style="font-size:11px; color:var(--text-muted); margin:8px 0 0;">Pulsa una jugada para llevar el vídeo a ese momento antes de exportar.</p>`;
         preview.querySelectorAll('.btn-preview-video').forEach(btn => btn.addEventListener('click', () => seekVideoTo(Number(btn.dataset.time))));
     };
-    modeSelector?.addEventListener('change', (e) => {
-        if (filtersContainer) {
-            filtersContainer.style.display = e.target.value === 'favoritos' ? 'none' : 'flex';
-        }
-        const puntoEnteroWrap = document.getElementById('vid-punto-entero-wrap');
-        if (puntoEnteroWrap) puntoEnteroWrap.style.display = ['filtrar', 'aciertos'].includes(e.target.value) ? 'flex' : 'none';
-        const dorsalLabel = document.querySelector('label[for="vid-dorsal"]');
-        if (dorsalLabel) dorsalLabel.textContent = e.target.value === 'puntos_ataques' ? 'Jugador que ataca' : 'Jugador / Dorsal';
-        const accion = document.getElementById('vid-accion');
-        if (accion) {
-            accion.disabled = ['puntos_ataques', 'aciertos'].includes(e.target.value);
-            if (e.target.value === 'puntos_ataques') accion.value = 'ataque';
-            else if (e.target.value === 'aciertos') accion.value = '';
-        }
-        renderPreview();
-    });
 
-    templateSelector?.addEventListener('change', () => {
-        const template = templateSelector.value;
-        const accion = document.getElementById('vid-accion');
-        if (template === 'ataques-jugador') {
-            modeSelector.value = 'puntos_ataques';
-            accion.value = 'ataque';
-        } else if (template === 'aciertos') {
-            modeSelector.value = 'aciertos';
-        } else if (template === 'favoritos') {
-            modeSelector.value = 'favoritos';
-        } else if (template === 'saques' || template === 'recepciones') {
-            modeSelector.value = 'filtrar';
-            accion.value = template === 'saques' ? 'saque' : 'recepcion';
-        }
-        modeSelector.dispatchEvent(new Event('change'));
+    const aplicarPlantilla = (id) => {
+        plantillaVideo = PLANTILLAS_VIDEO[id] ? id : 'puntos_jugador';
+        const cfg = cfgPlantilla();
+        document.querySelectorAll('#vid-plantillas .vid-tpl').forEach(b => {
+            const activa = b.dataset.tpl === plantillaVideo;
+            b.style.borderColor = activa ? 'var(--accent-primary, #3b82f6)' : '#334155';
+            b.style.background = activa ? 'rgba(59,130,246,.15)' : '#0f172a';
+        });
+        const mostrar = (elId, visible, display = 'block') => {
+            const el = document.getElementById(elId);
+            if (el) el.style.display = visible ? display : 'none';
+        };
+        mostrar('vid-grupo-dorsal', !!cfg.jugador);
+        mostrar('vid-grupo-accion', !!cfg.accion);
+        mostrar('vid-grupo-set', cfg.modo !== 'favoritos');
+        mostrar('vid-punto-entero-wrap', !!cfg.puntoEntero, 'flex');
+        const dorsalLabel = document.querySelector('label[for="vid-dorsal"]');
+        if (dorsalLabel) dorsalLabel.textContent = cfg.modo === 'puntos_ataques' ? 'Jugador que ataca' : 'Jugador';
+        renderPreview();
+    };
+
+    document.getElementById('vid-plantillas')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.vid-tpl');
+        if (btn) aplicarPlantilla(btn.dataset.tpl);
     });
-    document.getElementById('btn-previsualizar-videos')?.addEventListener('click', renderPreview);
-    document.getElementById('vid-punto-entero')?.addEventListener('change', renderPreview);
+    ['vid-dorsal', 'vid-accion', 'vid-set', 'vid-punto-entero'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', renderPreview);
+    });
+    document.getElementById('btn-generador-videos')?.addEventListener('click', () => aplicarPlantilla(plantillaVideo));
+    aplicarPlantilla(plantillaVideo);
 
     if (window.apiPista && window.apiPista.onVideoProgressPista) {
         window.apiPista.onVideoProgressPista((pct) => {
@@ -2715,31 +2944,32 @@ function setupModalsEvents() {
 
     document.getElementById('btn-generar-videos-run')?.addEventListener('click', async () => {
         const btnRun = document.getElementById('btn-generar-videos-run');
-        let modo = modeSelector ? modeSelector.value : 'filtrar';
-        // «Punto entero» sobre jugadas filtradas: mismo comportamiento que el modo de puntos completos.
-        const soloAciertos = modo === 'aciertos';
-        if (soloAciertos) modo = 'filtrar';
-        if (modo === 'filtrar' && document.getElementById('vid-punto-entero')?.checked) modo = 'puntos_ataques';
-        const filters = { modo };
-        if (soloAciertos) filters.aciertos = true;
+        const cfg = cfgPlantilla();
 
-        const dorsal = document.getElementById('vid-dorsal')?.value;
-        const acc = document.getElementById('vid-accion')?.value;
-        const setNum = document.getElementById('vid-set')?.value;
-        const mPre = document.getElementById('vid-margin-pre')?.value;
-        const mPost = document.getElementById('vid-margin-post')?.value;
-
-        if (modo !== 'favoritos') {
-            if (dorsal) filters.dorsal = parseInt(dorsal, 10);
-            if (modeSelector?.value === 'puntos_ataques') {
-                filters.tipo_accion = 'ataque';
-            } else if (acc && !soloAciertos) {
-                filters.tipo_accion = acc;
-            }
+        if (!seleccionarAcciones().length) {
+            showToast('No hay jugadas con tiempo de vídeo para esta selección', 'warning');
+            return;
         }
-        if (setNum) filters.set_numero = parseInt(setNum, 10);
-        filters.pre_margin = mPre ? parseFloat(mPre) : 3;
-        filters.post_margin = mPost ? parseFloat(mPost) : 2;
+
+        const filters = { modo: puntoEnteroActivo() ? 'puntos_ataques' : cfg.modo };
+        if (cfg.aciertos) filters.aciertos = true;
+        if (cfg.modo !== 'favoritos' && cfg.modo !== 'puntos') {
+            const dorsal = cfg.jugador ? leerCampo('vid-dorsal') : '';
+            const tipo = cfg.accion ? leerCampo('vid-accion') : (cfg.tipo || '');
+            if (dorsal) filters.dorsal = parseInt(dorsal, 10);
+            if (tipo) filters.tipo_accion = tipo;
+        }
+        const setNum = leerCampo('vid-set');
+        if (setNum && cfg.modo !== 'favoritos') filters.set_numero = parseInt(setNum, 10);
+
+        const margen = (id, porDefecto) => {
+            const v = parseFloat(leerCampo(id));
+            return Number.isFinite(v) && v >= 0 ? v : porDefecto;
+        };
+        filters.pre_margin = margen('vid-margin-pre', 4);
+        filters.post_margin = margen('vid-margin-post', 4);
+        filters.con_marcador = !!document.getElementById('vid-con-marcador')?.checked;
+        filters.mostrar_acciones = !!document.getElementById('vid-mostrar-acciones')?.checked;
 
         btnRun.disabled = true;
         btnRun.textContent = '⏳ Generando vídeo...';

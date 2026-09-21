@@ -1,4 +1,14 @@
 // stats-calculator-pista.js
+
+// Voto (0-10) al estilo del índice de Data Volley: cada acción técnica vale según su efecto
+// (# 10, + 8, ! 6, - 4, / 2, = 0) y el voto es la media ponderada de todas las acciones del
+// jugador. Como Data Volley admite pesos configurables, estos son la escala por defecto.
+// Para que pocas acciones no den notas extremas se mezcla con VOTO_PRIOR_PESO acciones
+// «medias» de valor VOTO_PRIOR (con 30 acciones el efecto es ya casi nulo).
+const PESOS_VOTO = { '#': 10, '+': 8, '!': 6, '-': 4, '/': 2, '=': 0 };
+const ACCIONES_CON_VOTO = ['saque', 'recepcion', 'ataque', 'bloqueo', 'defensa', 'colocacion', 'freeball'];
+const VOTO_PRIOR = 6;
+const VOTO_PRIOR_PESO = 4;
 export function calcularStatsPista(acciones, roster) {
   // Inicializar estructuras
   const statsPorJugador = {};
@@ -250,6 +260,11 @@ function processActionForStats(a, stats) {
   }
 
   if (res === '=') stats._erroresTotales++;
+
+  if (ACCIONES_CON_VOTO.includes(a.tipo_accion) && res in PESOS_VOTO) {
+    stats._votoSuma += PESOS_VOTO[res];
+    stats._votoAcciones++;
+  }
 }
 
 function finalizeStats(stats) {
@@ -270,21 +285,10 @@ function finalizeStats(stats) {
   // Ganancias perdidas
   stats.gananciasPerdidas = stats.puntos.total - stats._erroresTotales;
 
-  // Voto (Rating 0-10)
-  // Fórmula simple basada en DataVolley
-  let voto = 5.0;
-  if (stats.ataque.total > 0 || stats.recepcion.total > 0 || stats.saque.total > 0) {
-    voto += (stats.puntos.total * 0.4);
-    voto -= (stats._erroresTotales * 0.3);
-    voto += (stats.recepcion.excelentes * 0.2);
-    voto += (stats.defensa.positivas * 0.1);
-    
-    if (voto > 10) voto = 10;
-    if (voto < 0) voto = 0;
-  } else {
-    voto = 0; // Sin acciones
-  }
-  stats.voto = voto > 0 ? parseFloat(voto.toFixed(1)) : 0;
+  // Voto (0-10): media ponderada de los efectos de todas sus acciones técnicas (ver PESOS_VOTO)
+  stats.voto = stats._votoAcciones > 0
+    ? parseFloat(((stats._votoSuma + VOTO_PRIOR * VOTO_PRIOR_PESO) / (stats._votoAcciones + VOTO_PRIOR_PESO)).toFixed(1))
+    : 0;
 
   // Aliases para máxima compatibilidad con frontend (scouting-pista e informe-pista)
   stats.saques_totales = stats.saque.total;
@@ -342,6 +346,8 @@ function getEmptyJugadorStats(jugador) {
     fasePunto: 0,
     gananciasPerdidas: 0,
     _erroresTotales: 0,
+    _votoSuma: 0,
+    _votoAcciones: 0,
     puntos: { saque: 0, ataque: 0, bloqueo: 0, errorAdversario: 0, total: 0 },
     saque:     { total: 0, errores: 0, puntos: 0, positivos: 0, negativos: 0 },
     recepcion: { total: 0, errores: 0, positivas: 0, excelentes: 0, negativas: 0, posPct: 0, excPct: 0 },

@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('api', {
   // utilidades
   openVideoFile: () => ipcRenderer.invoke('dialog:openFile'),
   getStats: (partidoId) => ipcRenderer.invoke('stats:getByPartido', partidoId),
-  generatePDF: (html, height) => ipcRenderer.invoke('pdf:generate', html, height),
+  generatePDF: (html, height, opciones) => ipcRenderer.invoke('pdf:generate', html, height, opciones),
   generateVideoHighlights: (partidoId, filters) => ipcRenderer.invoke('video:generateHighlights', partidoId, filters),
   resolveYoutube: (videoUrl) => ipcRenderer.invoke('video:resolveYoutube', videoUrl),
   analyzeWhistles: (videoPath) => ipcRenderer.invoke('video:analyzeWhistles', videoPath),

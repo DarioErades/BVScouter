@@ -60,7 +60,8 @@ export function getYoutubeId(url) {
     const patterns = [
         /(?:youtube\.com\/watch\?v=)([^&\s]+)/,
         /(?:youtu\.be\/)([^?\s]+)/,
-        /(?:youtube\.com\/embed\/)([^?\s]+)/
+        /(?:youtube\.com\/embed\/)([^?\s]+)/,
+        /(?:youtube\.com\/(?:live|shorts)\/)([^?&\s/]+)/
     ];
     for (const pattern of patterns) {
         const match = url.match(pattern);

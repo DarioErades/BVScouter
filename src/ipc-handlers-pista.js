@@ -484,8 +484,8 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
     throw new Error('No se encontraron acciones con esos filtros que tengan un tiempo de vídeo registrado.');
   }
 
-  const preMargin = filters.pre_margin !== undefined ? parseFloat(filters.pre_margin) : 3;
-  const postMargin = filters.post_margin !== undefined ? parseFloat(filters.post_margin) : 1;
+  const preMargin = filters.pre_margin !== undefined ? parseFloat(filters.pre_margin) : 4;
+  const postMargin = filters.post_margin !== undefined ? parseFloat(filters.post_margin) : 4;
 
   let intervals = [];
 
@@ -527,10 +527,13 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
       
       const extraMargin = (primera && primera.tipo_accion === 'recepcion') ? 1.0 : 0.0;
       const actualPreMargin = preMargin + extraMargin;
+      // La última acción se apunta en el momento del golpe: el balón aún tarda en caer y el
+      // punto no termina ahí, así que en los rallies se deja un segundo extra de cola.
+      const colaExtra = 1.0;
       
       return {
         start: Math.max(0, (primera.video_timestamp - actualPreMargin)),
-        end: (ultima.video_timestamp + postMargin),
+        end: (ultima.video_timestamp + postMargin + colaExtra),
         score: `${primera.marcador_local || 0} - ${primera.marcador_rival || 0}`,
         acciones: g.acciones
       };

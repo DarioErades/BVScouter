@@ -634,7 +634,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
 
 // ---- PDF ----
 
-ipcMain.handle('pdf:generate', async (_event, html, _contentHeight) => {
+ipcMain.handle('pdf:generate', async (_event, html, _contentHeight, opciones = {}) => {
   const win = new BrowserWindow({
     show: false,
     width: 1240,
@@ -653,7 +653,7 @@ ipcMain.handle('pdf:generate', async (_event, html, _contentHeight) => {
   const pdfData = await win.webContents.printToPDF({
     printBackground: true,
     pageSize: 'A4',
-    landscape: false,
+    landscape: !!opciones?.landscape,
     margins: { marginType: 'printableArea' }
   });
 

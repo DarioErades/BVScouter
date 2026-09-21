@@ -11,7 +11,7 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "node --check src/main.js && node --check src/ipc-handlers.js && node --check src/ipc-handlers-pista.js",
-    "test": "node --test test/scoring.test.js test/stats-and-review.test.js"
+    "test": "node --test test/scoring.test.js test/stats-and-review.test.js test/stats-pista.test.js"
   },
   "keywords": [],
   "author": {

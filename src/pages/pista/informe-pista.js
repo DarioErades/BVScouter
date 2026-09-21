@@ -175,7 +175,7 @@ export function registerInformePista() {
                                     <th>Sets</th>
                                     <th>Voto</th>
                                     <th>FP</th>
-                                    <th>Aciertos</th>
+                                    <th>Puntos</th>
                                     <th>Errores</th>
                                     <th style="border-right: 1px solid var(--border);">G-P</th>
                                     <th>Saq</th>
@@ -428,11 +428,26 @@ export function registerInformePista() {
                         .data-table th, .data-table td { border: 1px solid #ddd; padding: 4px; }
                         .data-table th { background: #f5f5f5; font-weight: bold; }
                         .btn, .chart-container { display: none !important; }
+                        /* En pantalla la tabla hace scroll horizontal; en el PDF debe verse entera */
+                        .report-container, .report-section { max-width: none !important; overflow: visible !important; }
+                        div[style*="overflow-x"], div[style*="overflow:"] { overflow: visible !important; max-height: none !important; }
+                        #review-queue-pista { display: none !important; }
+                        .data-table { min-width: 0 !important; width: 100% !important; font-size: 7px !important; table-layout: auto; }
+                        .data-table th, .data-table td { padding: 1px 2px !important; white-space: nowrap; }
+                        .data-table th { white-space: normal; }
+                        .data-table td:nth-child(2) { white-space: normal; }
                     </style>
                     ${html.replace(/var\(--[a-zA-Z-]+\)/g, '#333')}
+                    <script>
+                        /* Ajusta cada tabla al ancho útil de una página A4 apaisada */
+                        document.querySelectorAll('.data-table').forEach(t => {
+                            const ancho = t.scrollWidth;
+                            if (ancho > 1040) t.style.zoom = String(1040 / ancho);
+                        });
+                    </script>
                 `;
                 const height = document.querySelector('.report-container').scrollHeight;
-                const result = await window.api.generatePDF(styledHtml, height + 100);
+                const result = await window.api.generatePDF(styledHtml, height + 100, { landscape: true });
                 if (result) {
                     showToast('PDF exportado correctamente', 'success');
                 }

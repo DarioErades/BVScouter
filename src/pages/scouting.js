@@ -16,12 +16,15 @@ let ytCurrentTime = 0;
 let ytState = -1;
 let ytMessageListener = null;
 let ytPollInterval = null;
+let ytReady = false;
+let ytBlurListener = null;
 let whistleTimestamps = [];
 let mouseWhistleHandler = null;
 
 function setupYoutubeTracking() {
     ytCurrentTime = 0;
     ytState = -1;
+    ytReady = false;
 
     if (ytMessageListener) {
         window.removeEventListener('message', ytMessageListener);
@@ -41,6 +44,7 @@ function setupYoutubeTracking() {
         }
         if (!data || typeof data !== 'object') return;
 
+        ytReady = true;
         if (data.info && typeof data.info.currentTime === 'number') {
             ytCurrentTime = data.info.currentTime;
         } else if (typeof data.currentTime === 'number') {
@@ -54,17 +58,32 @@ function setupYoutubeTracking() {
 
     window.addEventListener('message', ytMessageListener);
 
+    // Solo nos "suscribimos" (listening) hasta que el iframe responde; el reproductor
+    // empuja solo currentTime/playerState. Mandar comandos antes de que cargue rompe sus controles.
     ytPollInterval = setInterval(() => {
         const iframe = document.getElementById('yt-iframe-player');
-        if (iframe && iframe.contentWindow) {
-            try {
-                iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*');
-                iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
-            } catch (e) {
-                // ignore
-            }
+        if (!iframe || !iframe.contentWindow) return;
+        if (ytReady) {
+            clearInterval(ytPollInterval);
+            ytPollInterval = null;
+            return;
         }
-    }, 250);
+        try {
+            iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
+        } catch (e) {
+            // ignore
+        }
+    }, 500);
+
+    // el iframe se queda con el foco del teclado y las teclas (P, atajos...) dejan de llegar a la app
+    if (ytBlurListener) window.removeEventListener('blur', ytBlurListener);
+    ytBlurListener = () => {
+        setTimeout(() => {
+            const iframe = document.getElementById('yt-iframe-player');
+            if (iframe && document.activeElement === iframe) window.focus();
+        }, 0);
+    };
+    window.addEventListener('blur', ytBlurListener);
 }
 
 export function registerScouting() {
@@ -773,7 +792,7 @@ function setupVideoPlayer(container) {
                 document.querySelector('.scouting-layout')?.classList.remove('youtube-choice-active');
                 videoContainer.innerHTML = `
                     <div style="position:relative; width:100%; height:100%; aspect-ratio:16/9; background:#000;">
-                        <iframe id="yt-iframe-player" src="https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
+                        <iframe id="yt-iframe-player" src="https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1&controls=1&playsinline=1&origin=${encodeURIComponent(location.origin)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
                     </div>
                 `;
                 showToast('Reproduciendo Streaming directo de YouTube', 'success');
@@ -1386,6 +1405,10 @@ function limpiarShortcuts() {
         clearInterval(ytPollInterval);
         ytPollInterval = null;
     }
+    if (ytBlurListener) {
+        window.removeEventListener('blur', ytBlurListener);
+        ytBlurListener = null;
+    }
     // paramos la reversa si estaba activa
     if (scoutingState && scoutingState.reverseInterval) {
         clearInterval(scoutingState.reverseInterval);
@@ -1780,7 +1803,7 @@ function getVideoTimestamp() {
     if (video) return video.currentTime;
     const iframe = document.getElementById('yt-iframe-player');
     if (iframe) {
-        if (!ytPollInterval) {
+        if (!ytMessageListener) {
             setupYoutubeTracking();
         }
         return ytCurrentTime || 0;

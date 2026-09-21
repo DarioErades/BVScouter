@@ -1,0 +1,12 @@
+{
+  "appId": "es.darioerades.volleystats.tablet",
+  "appName": "VolleyStats Tablet",
+  "webDir": "www",
+  "backgroundColor": "#080c1a",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "StatusBar": { "overlaysWebView": true, "style": "DARK" }
+  }
+}

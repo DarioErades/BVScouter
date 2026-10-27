@@ -7,84 +7,14 @@ import { calcularStats } from '../utils/stats-calculator.js';
 import { getPrefs } from '../utils/theme.js';
 import { actionForKey, keyFor, subtypeForKey } from '../utils/keybindings.js';
 import { applyScoreDelta, scoreDeltaForResult } from '../utils/scoring.js';
+import { ytEmbedUrl, setupYoutubeTracking, teardownYoutubeTracking, toggleYoutubePlayPause, seekYoutubeBy, seekYoutubeTo, setYoutubeSpeed, getYoutubeCurrentTime, isYoutubeIframePresent } from '../utils/youtube-player.js';
 
 let scoutingState = null;
 let keyHandler = null;
 let processSubtypeKey = null;
 let speedHoldHandler = null;
-let ytCurrentTime = 0;
-let ytState = -1;
-let ytMessageListener = null;
-let ytPollInterval = null;
-let ytReady = false;
-let ytBlurListener = null;
 let whistleTimestamps = [];
 let mouseWhistleHandler = null;
-
-function setupYoutubeTracking() {
-    ytCurrentTime = 0;
-    ytState = -1;
-    ytReady = false;
-
-    if (ytMessageListener) {
-        window.removeEventListener('message', ytMessageListener);
-    }
-    if (ytPollInterval) {
-        clearInterval(ytPollInterval);
-    }
-
-    ytMessageListener = (event) => {
-        let data = event.data;
-        if (typeof data === 'string') {
-            try {
-                data = JSON.parse(data);
-            } catch (e) {
-                return;
-            }
-        }
-        if (!data || typeof data !== 'object') return;
-
-        ytReady = true;
-        if (data.info && typeof data.info.currentTime === 'number') {
-            ytCurrentTime = data.info.currentTime;
-        } else if (typeof data.currentTime === 'number') {
-            ytCurrentTime = data.currentTime;
-        }
-
-        if (data.info && typeof data.info.playerState === 'number') {
-            ytState = data.info.playerState;
-        }
-    };
-
-    window.addEventListener('message', ytMessageListener);
-
-    // Solo nos "suscribimos" (listening) hasta que el iframe responde; el reproductor
-    // empuja solo currentTime/playerState. Mandar comandos antes de que cargue rompe sus controles.
-    ytPollInterval = setInterval(() => {
-        const iframe = document.getElementById('yt-iframe-player');
-        if (!iframe || !iframe.contentWindow) return;
-        if (ytReady) {
-            clearInterval(ytPollInterval);
-            ytPollInterval = null;
-            return;
-        }
-        try {
-            iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
-        } catch (e) {
-            // ignore
-        }
-    }, 500);
-
-    // el iframe se queda con el foco del teclado y las teclas (P, atajos...) dejan de llegar a la app
-    if (ytBlurListener) window.removeEventListener('blur', ytBlurListener);
-    ytBlurListener = () => {
-        setTimeout(() => {
-            const iframe = document.getElementById('yt-iframe-player');
-            if (iframe && document.activeElement === iframe) window.focus();
-        }, 0);
-    };
-    window.addEventListener('blur', ytBlurListener);
-}
 
 export function registerScouting() {
     router.register('scouting', async (container, params) => {
@@ -792,7 +722,7 @@ function setupVideoPlayer(container) {
                 document.querySelector('.scouting-layout')?.classList.remove('youtube-choice-active');
                 videoContainer.innerHTML = `
                     <div style="position:relative; width:100%; height:100%; aspect-ratio:16/9; background:#000;">
-                        <iframe id="yt-iframe-player" src="https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1&controls=1&playsinline=1&origin=${encodeURIComponent(location.origin)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
+                        <iframe id="yt-iframe-player" src="${ytEmbedUrl(ytId)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
                     </div>
                 `;
                 showToast('Reproduciendo Streaming directo de YouTube', 'success');
@@ -1397,18 +1327,7 @@ function limpiarShortcuts() {
         document.removeEventListener('keyup',   speedHoldHandler.up);
         speedHoldHandler = null;
     }
-    if (ytMessageListener) {
-        window.removeEventListener('message', ytMessageListener);
-        ytMessageListener = null;
-    }
-    if (ytPollInterval) {
-        clearInterval(ytPollInterval);
-        ytPollInterval = null;
-    }
-    if (ytBlurListener) {
-        window.removeEventListener('blur', ytBlurListener);
-        ytBlurListener = null;
-    }
+    teardownYoutubeTracking();
     // paramos la reversa si estaba activa
     if (scoutingState && scoutingState.reverseInterval) {
         clearInterval(scoutingState.reverseInterval);
@@ -1674,14 +1593,7 @@ function toggleVideoPlayPause() {
         video.paused ? video.play() : video.pause();
         return;
     }
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        if (ytState === 1) { // playing
-            iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*');
-        } else {
-            iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
-        }
-    }
+    if (isYoutubeIframePresent()) toggleYoutubePlayPause();
 }
 
 function seekVideo(seconds) {
@@ -1696,18 +1608,12 @@ function seekVideo(seconds) {
         video.currentTime = Math.max(0, target);
         return;
     }
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        const target = ytCurrentTime + seconds;
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [Math.max(0, target), true] }), '*');
-    }
+    if (isYoutubeIframePresent()) seekYoutubeBy(seconds);
 }
 
 function seekVideoTo(seconds) {
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seconds, true] }), '*');
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+    if (isYoutubeIframePresent()) {
+        seekYoutubeTo(seconds);
         showToast(`Saltando a ${formatTimestamp(seconds)} en YouTube Stream`, 'info');
         return;
     }
@@ -1731,10 +1637,9 @@ function changeVideoSpeed(delta) {
         showToast(`Velocidad: ${scoutingState.videoSpeed}x`, 'info');
         return;
     }
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
+    if (isYoutubeIframePresent()) {
         scoutingState.videoSpeed = Math.max(0.25, Math.min(4, scoutingState.videoSpeed + delta));
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [scoutingState.videoSpeed] }), '*');
+        setYoutubeSpeed(scoutingState.videoSpeed);
         const indicator = document.getElementById('speed-indicator');
         if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
         showToast(`Velocidad: ${scoutingState.videoSpeed}x`, 'info');
@@ -1752,10 +1657,9 @@ function setVideoSpeed(speed) {
         showToast(`Velocidad: ${speed}x`, 'info');
         return;
     }
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
+    if (isYoutubeIframePresent()) {
         scoutingState.videoSpeed = speed;
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [speed] }), '*');
+        setYoutubeSpeed(speed);
         const indicator = document.getElementById('speed-indicator');
         if (indicator) indicator.textContent = `${speed}x`;
         showToast(`Velocidad: ${speed}x`, 'info');
@@ -1801,13 +1705,7 @@ function toggleVideoReverse() {
 function getVideoTimestamp() {
     const video = document.getElementById('local-video');
     if (video) return video.currentTime;
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        if (!ytMessageListener) {
-            setupYoutubeTracking();
-        }
-        return ytCurrentTime || 0;
-    }
+    if (isYoutubeIframePresent()) return getYoutubeCurrentTime();
     if (window.getCurrentVideoTime) return window.getCurrentVideoTime();
     return 0;
 }

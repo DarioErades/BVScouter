@@ -5,91 +5,75 @@ import { actionForKey, keyFor, subtypeForKey } from '../../utils/keybindings.js'
 import { calcularStatsPista } from '../../utils/stats-calculator-pista.js';
 import { getPrefs } from '../../utils/theme.js';
 import { applyScoreDelta } from '../../utils/scoring.js';
+import { resolverPunto, aplicarPunto, rotarAdelante, rotarAtras, giros, slotEnPosicion } from '../../utils/scoring-pista.js';
+import { siguientePunto } from '../../utils/rallies-pista.js';
+import { ytEmbedUrl, setupYoutubeTracking, teardownYoutubeTracking, toggleYoutubePlayPause, seekYoutubeBy, seekYoutubeTo, setYoutubeSpeed, getYoutubeCurrentTime, isYoutubeIframePresent } from '../../utils/youtube-player.js';
 
 let scoutingState = null;
 let keyHandler = null;
 let speedHoldHandler = null;
-let ytCurrentTime = 0;
-let ytState = -1;
-let ytMessageListener = null;
-let ytPollInterval = null;
-let ytReady = false;
-let ytBlurListener = null;
 let whistleTimestamps = [];
 let mouseWhistleHandler = null;
 
-function setupYoutubeTracking() {
-    ytCurrentTime = 0;
-    ytState = -1;
-    ytReady = false;
+// Posición del vídeo al salir a "Ver informe", para restaurarla si se vuelve al mismo partido
+// (btn-ver-informe -> informe-pista -> btn-back) en vez de reiniciar el vídeo desde cero.
+let videoResumeState = null; // { partidoId, modo: 'iframe'|'local'|'descarga', tiempo, speed, localUrl? }
 
-    if (ytMessageListener) {
-        window.removeEventListener('message', ytMessageListener);
+function capturarEstadoVideoAlSalir() {
+    const localVideo = document.getElementById('local-video');
+    if (isYoutubeIframePresent()) {
+        videoResumeState = { partidoId: scoutingState.partidoId, modo: 'iframe', tiempo: getYoutubeCurrentTime(), speed: scoutingState.videoSpeed || 1 };
+    } else if (localVideo && scoutingState.partido.video_tipo === 'youtube') {
+        videoResumeState = { partidoId: scoutingState.partidoId, modo: 'descarga', tiempo: localVideo.currentTime || 0, speed: scoutingState.videoSpeed || 1, localUrl: localVideo.currentSrc || localVideo.querySelector('source')?.src };
+    } else if (localVideo) {
+        videoResumeState = { partidoId: scoutingState.partidoId, modo: 'local', tiempo: localVideo.currentTime || 0, speed: scoutingState.videoSpeed || 1 };
+    } else {
+        videoResumeState = null;
     }
-    if (ytPollInterval) {
-        clearInterval(ytPollInterval);
-    }
+}
 
-    ytMessageListener = (event) => {
-        let data = event.data;
-        if (typeof data === 'string') {
-            try {
-                data = JSON.parse(data);
-            } catch (e) {
-                return;
-            }
-        }
-        if (!data || typeof data !== 'object') return;
+function restaurarEstadoVideoAlEntrar() {
+    if (!videoResumeState || videoResumeState.partidoId !== scoutingState.partidoId) return;
+    const estado = videoResumeState;
+    videoResumeState = null;
 
-        ytReady = true;
-        if (data.info && typeof data.info.currentTime === 'number') {
-            ytCurrentTime = data.info.currentTime;
-        } else if (typeof data.currentTime === 'number') {
-            ytCurrentTime = data.currentTime;
-        }
-
-        if (data.info && typeof data.info.playerState === 'number') {
-            ytState = data.info.playerState;
-        }
-    };
-
-    window.addEventListener('message', ytMessageListener);
-
-    // Solo nos "suscribimos" (listening) hasta que el iframe responde; el reproductor
-    // empuja solo currentTime/playerState. Mandar comandos antes de que cargue rompe sus controles.
-    ytPollInterval = setInterval(() => {
-        const iframe = document.getElementById('yt-iframe-player');
-        if (!iframe || !iframe.contentWindow) return;
-        if (ytReady) {
-            clearInterval(ytPollInterval);
-            ytPollInterval = null;
-            return;
-        }
-        try {
-            iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
-        } catch (e) {
-            // ignore
-        }
-    }, 500);
-
-    // el iframe se queda con el foco del teclado y las teclas (P, atajos...) dejan de llegar a la app
-    if (ytBlurListener) window.removeEventListener('blur', ytBlurListener);
-    ytBlurListener = () => {
+    if (estado.modo === 'iframe') {
+        document.getElementById('btn-yt-iframe')?.click();
+        // el iframe tarda un poco en cargar y aceptar comandos tras crearse
         setTimeout(() => {
-            const iframe = document.getElementById('yt-iframe-player');
-            if (iframe && document.activeElement === iframe) window.focus();
-        }, 0);
+            seekYoutubeTo(estado.tiempo);
+            setYoutubeSpeed(estado.speed);
+        }, 1500);
+        return;
+    }
+
+    if (estado.modo === 'descarga' && estado.localUrl) {
+        const videoContainer = document.getElementById('video-container');
+        if (videoContainer) {
+            document.querySelector('.scouting-layout')?.classList.remove('youtube-choice-active');
+            videoContainer.innerHTML = renderLocalVideoHtml(estado.localUrl);
+            setupVideoPlayer(videoContainer);
+            if (window.api.analyzeWhistles) setupWhistleMouseNavigation(estado.localUrl);
+        }
+    }
+
+    const video = document.getElementById('local-video');
+    if (!video) return;
+    const aplicarPosicion = () => {
+        video.currentTime = estado.tiempo;
+        video.playbackRate = estado.speed;
+        scoutingState.videoSpeed = estado.speed;
+        const indicator = document.getElementById('speed-indicator');
+        if (indicator) indicator.textContent = `${estado.speed}x`;
     };
-    window.addEventListener('blur', ytBlurListener);
+    if (video.readyState >= 1) aplicarPosicion();
+    else video.addEventListener('loadedmetadata', aplicarPosicion, { once: true });
 }
 
 // La rotación R es la posición del colocador (R6 = colocador en P6...). Al rotar el
 // equipo pasa de P6 a P5, P4... P1 y vuelve a P6. El lineup guardado es la colocación
 // con el colocador en P1 (R1); al fijar titulares se "deshace" la rotación r.
-const rotarAdelante = (r) => (r === 1 ? 6 : r - 1);
-const rotarAtras = (r) => (r === 6 ? 1 : r + 1);
-const giros = (r) => (7 - r) % 6;
-const slotEnPosicion = (posNum, r) => ((posNum - 1 + giros(r)) % 6) + 1;
+// rotarAdelante/rotarAtras/giros/slotEnPosicion viven en scoring-pista.js (compartidos con la tablet)
 
 function lineupEnBaseR1(lineupReal, r) {
     const base = {};
@@ -234,6 +218,7 @@ export function registerScoutingPista() {
         container.style.padding = '16px';
         renderScoutingUI(container);
         setupVideoPlayer(container);
+        restaurarEstadoVideoAlEntrar();
         setupKeyboardShortcuts(container);
         setupWhistleMouseNavigation();
         refreshTimelineAndStats();
@@ -1128,13 +1113,39 @@ function renderModals() {
                         </label>
                     </div>
 
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label" style="display:block; margin-bottom: 4px;">Calidad</label>
+                            <select id="vid-calidad" class="form-input pista-select" style="width: 100%;">
+                                <option value="alta">Alta (más peso)</option>
+                                <option value="media" selected>Media</option>
+                                <option value="baja">Baja (más ligero)</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label" style="display:block; margin-bottom: 4px;">Resolución</label>
+                            <select id="vid-resolucion" class="form-input pista-select" style="width: 100%;">
+                                <option value="">Original</option>
+                                <option value="720">720p</option>
+                                <option value="1080">1080p</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label id="vid-portada-wrap" style="display:none; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+                        <input type="checkbox" id="vid-portada">
+                        <span>Añadir una portada con el nombre del partido al principio</span>
+                    </label>
+
                     <div id="vid-preview" style="display:block; border:1px solid var(--border); border-radius:8px; padding:10px; background:rgba(15,23,42,.45);"></div>
 
                     <div id="vid-progress-container" style="display: none;">
                         <div style="background: #1e293b; border-radius: 4px; height: 16px; overflow: hidden; border: 1px solid #334155;">
                             <div id="vid-progress-bar" style="background: var(--accent-primary); width: 0%; height: 100%; transition: width 0.3s;"></div>
                         </div>
-                        <div id="vid-progress-text" style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 4px;">0%</div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-top: 4px;">
+                            <span id="vid-progress-text" style="font-size: 11px; color: #94a3b8;">0%</span>
+                            <button id="btn-cancelar-video" class="btn btn-sm btn-secondary" style="color:#ef4444;">✖ Cancelar</button>
+                        </div>
                     </div>
                 </div>
                 <div class="notes-footer">
@@ -1178,6 +1189,10 @@ function renderVideoPlayer() {
     }
 
     const srcUrl = partido.video_url.startsWith('http') ? partido.video_url : `local-video://video?path=${encodeURIComponent(partido.video_url)}`;
+    return renderLocalVideoHtml(srcUrl);
+}
+
+function renderLocalVideoHtml(srcUrl) {
     return `
         <video id="local-video" preload="metadata"><source src="${srcUrl}"></video>
         <div class="video-controls" id="video-controls">
@@ -1199,14 +1214,7 @@ function toggleVideoPlayPause() {
         video.paused ? video.play() : video.pause();
         return;
     }
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        if (ytState === 1) { // playing
-            iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*');
-        } else {
-            iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
-        }
-    }
+    if (isYoutubeIframePresent()) toggleYoutubePlayPause();
 }
 
 function seekVideo(seconds) {
@@ -1221,18 +1229,12 @@ function seekVideo(seconds) {
         video.currentTime = Math.max(0, target);
         return;
     }
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        const target = ytCurrentTime + seconds;
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [Math.max(0, target), true] }), '*');
-    }
+    if (isYoutubeIframePresent()) seekYoutubeBy(seconds);
 }
 
 function seekVideoTo(seconds) {
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seconds, true] }), '*');
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+    if (isYoutubeIframePresent()) {
+        seekYoutubeTo(seconds);
         showToast(`Saltando a ${formatTimestamp(seconds)} en YouTube Stream`, 'info');
         return;
     }
@@ -1248,13 +1250,7 @@ function seekVideoTo(seconds) {
 function getVideoTimestamp() {
     const video = document.getElementById('local-video');
     if (video) return video.currentTime;
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
-        if (!ytMessageListener) {
-            setupYoutubeTracking();
-        }
-        return ytCurrentTime || 0;
-    }
+    if (isYoutubeIframePresent()) return getYoutubeCurrentTime();
     return 0;
 }
 
@@ -1268,10 +1264,9 @@ function changeVideoSpeed(delta) {
         showToast(`Velocidad: ${scoutingState.videoSpeed}x`, 'info');
         return;
     }
-    const iframe = document.getElementById('yt-iframe-player');
-    if (iframe) {
+    if (isYoutubeIframePresent()) {
         scoutingState.videoSpeed = Math.max(0.25, Math.min(4, (scoutingState.videoSpeed || 1) + delta));
-        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [scoutingState.videoSpeed] }), '*');
+        setYoutubeSpeed(scoutingState.videoSpeed);
         const indicator = document.getElementById('speed-indicator');
         if (indicator) indicator.textContent = `${scoutingState.videoSpeed}x`;
         showToast(`Velocidad: ${scoutingState.videoSpeed}x`, 'info');
@@ -1290,7 +1285,7 @@ function setupVideoPlayer(container) {
                 document.querySelector('.scouting-layout')?.classList.remove('youtube-choice-active');
                 videoContainer.innerHTML = `
                     <div style="position:relative; width:100%; height:100%; aspect-ratio:16/9; background:#000;">
-                        <iframe id="yt-iframe-player" src="https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1&controls=1&playsinline=1&origin=${encodeURIComponent(location.origin)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
+                        <iframe id="yt-iframe-player" src="${ytEmbedUrl(ytId)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>
                     </div>
                 `;
                 showToast('Reproduciendo Streaming directo de YouTube', 'success');
@@ -1394,19 +1389,7 @@ async function setupYoutubeDownload(container) {
         }
 
         if (videoContainer) {
-            videoContainer.innerHTML = `
-                <video id="local-video" preload="metadata"><source src="${localUrl}"></video>
-                <div class="video-controls" id="video-controls">
-                    <button id="btn-play-pause">▶</button>
-                    <div class="video-progress" id="video-progress"><div class="video-progress-bar" id="video-progress-bar"></div></div>
-                    <span class="video-time" id="video-time">00:00 / 00:00</span>
-                    <div style="display:flex; align-items:center; gap:2px; margin-left:8px; margin-right:8px;">
-                        <button id="btn-speed-down" style="background:transparent; border:none; color:white; cursor:pointer;" title="Reducir Velocidad">-</button>
-                        <span class="speed-indicator" id="speed-indicator" style="min-width:30px; text-align:center;">1x</span>
-                        <button id="btn-speed-up" style="background:transparent; border:none; color:white; cursor:pointer;" title="Aumentar Velocidad">+</button>
-                    </div>
-                </div>
-            `;
+            videoContainer.innerHTML = renderLocalVideoHtml(localUrl);
             setupVideoPlayer(videoContainer);
             if (window.api.analyzeWhistles) setupWhistleMouseNavigation(localUrl);
         }
@@ -1646,8 +1629,9 @@ function setupActionPanelEvents(container) {
         await window.apiPista.updatePartidoPista(scoutingState.partidoId, {
             resultado: `${scoutingState.marcadorLocal}-${scoutingState.marcadorRival}`
         });
+        capturarEstadoVideoAlSalir();
         limpiarShortcuts();
-        router.navigate('informe-pista', { partidoId: scoutingState.partidoId });
+        router.navigate('informe-pista', { partidoId: scoutingState.partidoId, origen: 'scouting-pista' });
     });
 
     document.getElementById('btn-notas-partido')?.addEventListener('click', () => {
@@ -1737,18 +1721,7 @@ function limpiarShortcuts() {
         document.removeEventListener('keyup',   speedHoldHandler.up);
         speedHoldHandler = null;
     }
-    if (ytMessageListener) {
-        window.removeEventListener('message', ytMessageListener);
-        ytMessageListener = null;
-    }
-    if (ytPollInterval) {
-        clearInterval(ytPollInterval);
-        ytPollInterval = null;
-    }
-    if (ytBlurListener) {
-        window.removeEventListener('blur', ytBlurListener);
-        ytBlurListener = null;
-    }
+    teardownYoutubeTracking();
 }
 
 async function updateScore(team, delta) {
@@ -1946,41 +1919,21 @@ async function guardarAccion(resultado) {
     const marcadorPreLocal = scoutingState.marcadorLocal;
     const marcadorPreRival = scoutingState.marcadorRival;
     
-    // Auto score y rotacion
-    let scored = null;
-    if (scoutingState.tipoAccion === 'rival') {
-        if (resultado === '#' || scoutingState.subtipo === 'Acierto Rival') {
-            scored = 'rival';
-            resultado = '#';
-            if (!scoutingState.subtipo) scoutingState.subtipo = 'Acierto Rival';
-        } else if (resultado === '=' || scoutingState.subtipo === 'Error Rival') {
-            scored = 'local';
-            resultado = '=';
-            if (!scoutingState.subtipo) scoutingState.subtipo = 'Error Rival';
-        }
-    } else if (scoutingState.tipoAccion === 'error_general') {
-        scored = 'rival'; // Error general del equipo suma punto al rival
-    } else if (resultado === '#' && (scoutingState.tipoAccion === 'ataque' || scoutingState.tipoAccion === 'saque' || scoutingState.tipoAccion === 'bloqueo')) {
-        scored = 'local'; // Solo ataque, saque o bloqueo ganadores (kill, ace, block punto) dan punto directo
-    } else if (resultado === '=' && scoutingState.tipoAccion !== 'rival') {
-        scored = 'rival'; // Cualquier error propio ('=') suma punto al rival
-    } else if (resultado === '/' && scoutingState.tipoAccion === 'ataque') {
-        scored = 'rival'; // Ataque bloqueado ('/') suma punto al rival
-    }
-    
-    if (scored === 'local') scoutingState.marcadorLocal++;
-    if (scored === 'rival') scoutingState.marcadorRival++;
+    // Auto score y rotación: misma lógica que usa la app de tablet (scoring-pista.js).
+    const { anota: scored, resultado: resultadoNormalizado, subtipo: subtipoAuto } = resolverPunto(scoutingState.tipoAccion, resultado, scoutingState.subtipo);
+    resultado = resultadoNormalizado;
+    if (subtipoAuto) scoutingState.subtipo = subtipoAuto;
 
-    if (scored === 'local') {
-        if (scoutingState.equipoAlSaque === 'rival') {
-            scoutingState.rotacionActual = rotarAdelante(scoutingState.rotacionActual);
-        }
-        scoutingState.equipoAlSaque = 'local';
-    } else if (scored === 'rival') {
-        scoutingState.equipoAlSaque = 'rival';
-    } else if (!scoutingState.equipoAlSaque) {
-        scoutingState.equipoAlSaque = 'local';
-    }
+    const estado = aplicarPunto({
+        marcadorLocal: scoutingState.marcadorLocal,
+        marcadorRival: scoutingState.marcadorRival,
+        equipoAlSaque: scoutingState.equipoAlSaque,
+        rotacionActual: scoutingState.rotacionActual
+    }, scored);
+    scoutingState.marcadorLocal = estado.marcadorLocal;
+    scoutingState.marcadorRival = estado.marcadorRival;
+    scoutingState.equipoAlSaque = estado.equipoAlSaque;
+    scoutingState.rotacionActual = estado.rotacionActual;
 
     let subtipo = scoutingState.subtipo || '';
     const posicionActual = scoutingState.tipoAccion === 'ataque'
@@ -2006,6 +1959,11 @@ async function guardarAccion(resultado) {
         equipo_al_saque: scoutingState.equipoAlSaque,
         video_timestamp: time,
     };
+    // Punto de este set según ya llevamos guardado, para reconstruir el marcador punto a punto sin ambigüedad.
+    const previasDelSet = (scoutingState.acciones || []).filter(a => Number(a.set_numero) === scoutingState.setActual);
+    const sig = siguientePunto(previasDelSet, accionData.equipo_al_saque);
+    accionData.punto_num = sig.punto_num;
+    accionData.saque_inicio = sig.saque_inicio;
 
     try {
         await window.apiPista.createAccionPista(accionData);
@@ -2822,6 +2780,18 @@ function setupModalsEvents() {
             rotaciones_iniciales: JSON.stringify(scoutingState.rotacionesIniciales)
         });
 
+        // Tras el cambio puede quedar sin colocador único en pista (ha salido el colocador, o ha
+        // entrado un segundo). No preguntamos a mitad de punto: se mantiene la última rotación
+        // conocida (getRotacionEfectiva ya hace ese fallback) y solo avisamos de por qué.
+        const lineupTrasCambio = scoutingState.rotacionesIniciales[scoutingState.setActual] || {};
+        const colocadoresTrasCambio = Object.values(lineupTrasCambio).filter(d => {
+            const p = scoutingState.roster.find(r => Number(r.dorsal) === Number(d));
+            return p?.posicion && p.posicion.trim().toLowerCase() === 'colocador';
+        });
+        if (colocadoresTrasCambio.length !== 1) {
+            showToast(`⚠️ No se puede detectar la rotación automáticamente (hay ${colocadoresTrasCambio.length} colocadores en pista tras el cambio). Se mantiene la rotación actual: R${scoutingState.rotacionActual}.`, 'warning');
+        }
+
         await window.apiPista.createAccionPista({
             partido_id: scoutingState.partidoId,
             dorsal: dorsalEntra,
@@ -2931,6 +2901,13 @@ function setupModalsEvents() {
     document.getElementById('btn-generador-videos')?.addEventListener('click', () => aplicarPlantilla(plantillaVideo));
     aplicarPlantilla(plantillaVideo);
 
+    // La portada solo tiene sentido si todos los clips comparten resolución (lo exige ffmpeg).
+    document.getElementById('vid-resolucion')?.addEventListener('change', (e) => {
+        const wrap = document.getElementById('vid-portada-wrap');
+        if (wrap) wrap.style.display = e.target.value ? 'flex' : 'none';
+        if (!e.target.value) { const cb = document.getElementById('vid-portada'); if (cb) cb.checked = false; }
+    });
+
     if (window.apiPista && window.apiPista.onVideoProgressPista) {
         window.apiPista.onVideoProgressPista((pct) => {
             const bar = document.getElementById('vid-progress-bar');
@@ -2938,6 +2915,19 @@ function setupModalsEvents() {
             if (bar && txt) {
                 bar.style.width = pct + '%';
                 txt.textContent = pct + '%';
+            }
+        });
+    }
+
+    // Si el vídeo es de YouTube y no está cacheado, antes de generar el resumen hay que
+    // descargarlo entero; sin esto la barra se queda en "0%" y parece colgada.
+    if (window.apiPista && window.apiPista.onVideoDownloadingPista) {
+        window.apiPista.onVideoDownloadingPista((prog) => {
+            const bar = document.getElementById('vid-progress-bar');
+            const txt = document.getElementById('vid-progress-text');
+            if (bar && txt) {
+                bar.style.width = (prog?.percent || 0) + '%';
+                txt.textContent = `Descargando vídeo de YouTube: ${prog?.text || (Math.round(prog?.percent || 0) + '%')}`;
             }
         });
     }
@@ -2970,6 +2960,10 @@ function setupModalsEvents() {
         filters.post_margin = margen('vid-margin-post', 4);
         filters.con_marcador = !!document.getElementById('vid-con-marcador')?.checked;
         filters.mostrar_acciones = !!document.getElementById('vid-mostrar-acciones')?.checked;
+        filters.calidad = leerCampo('vid-calidad') || 'media';
+        filters.resolucion = leerCampo('vid-resolucion') || '';
+        filters.portada = !!document.getElementById('vid-portada')?.checked;
+        filters.titulo = `${scoutingState.partido.equipo_nombre || ''} vs ${scoutingState.partido.rival_nombre || ''}`.trim();
 
         btnRun.disabled = true;
         btnRun.textContent = '⏳ Generando vídeo...';
@@ -2977,9 +2971,14 @@ function setupModalsEvents() {
         const progContainer = document.getElementById('vid-progress-container');
         const progBar = document.getElementById('vid-progress-bar');
         const progText = document.getElementById('vid-progress-text');
+        const btnCancelar = document.getElementById('btn-cancelar-video');
         if (progContainer) progContainer.style.display = 'block';
         if (progBar) progBar.style.width = '0%';
         if (progText) progText.textContent = '0%';
+        if (btnCancelar) btnCancelar.disabled = false;
+
+        const onCancelar = () => window.apiPista.cancelVideoHighlightsPista();
+        btnCancelar?.addEventListener('click', onCancelar);
 
         try {
             const path = await window.apiPista.generateVideoHighlightsPista(scoutingState.partidoId, filters);
@@ -2989,8 +2988,10 @@ function setupModalsEvents() {
                 scoutingState.wizardModalAbierto = false;
             }
         } catch (err) {
-            showToast(err.message || 'Error al exportar vídeo', 'error');
+            if (err.message && err.message.includes('CANCELADO')) showToast('Generación cancelada', 'info');
+            else showToast(err.message || 'Error al exportar vídeo', 'error');
         } finally {
+            btnCancelar?.removeEventListener('click', onCancelar);
             btnRun.disabled = false;
             btnRun.textContent = '🚀 Exportar Vídeo Resumen';
             if (progContainer) progContainer.style.display = 'none';

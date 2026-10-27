@@ -1,11 +1,12 @@
 // stats-calculator-pista.js
+import { agruparRallies } from './rallies-pista.js';
 
 // Voto (0-10) al estilo del índice de Data Volley: cada acción técnica vale según su efecto
 // (# 10, + 8, ! 6, - 4, / 2, = 0) y el voto es la media ponderada de todas las acciones del
 // jugador. Como Data Volley admite pesos configurables, estos son la escala por defecto.
 // Para que pocas acciones no den notas extremas se mezcla con VOTO_PRIOR_PESO acciones
 // «medias» de valor VOTO_PRIOR (con 30 acciones el efecto es ya casi nulo).
-const PESOS_VOTO = { '#': 10, '+': 8, '!': 6, '-': 4, '/': 2, '=': 0 };
+export const PESOS_VOTO = { '#': 10, '+': 8, '!': 6, '-': 4, '/': 2, '=': 0 };
 const ACCIONES_CON_VOTO = ['saque', 'recepcion', 'ataque', 'bloqueo', 'defensa', 'colocacion', 'freeball'];
 const VOTO_PRIOR = 6;
 const VOTO_PRIOR_PESO = 4;
@@ -187,31 +188,6 @@ export function calcularStatsPista(acciones, roster) {
     primerAtaqueNegativo: primerAtaqueNeg,
     porRotacion
   };
-}
-
-function esAccionTerminal(a) {
-  if (!a || ['tiempo_muerto', 'cambio'].includes(a.tipo_accion)) return false;
-  if (a.tipo_accion === 'rival' || a.tipo_accion === 'error_general') return true;
-  if (['recepcion', 'defensa', 'colocacion', 'freeball'].includes(a.tipo_accion)) {
-    return a.resultado === '=';
-  }
-  return ['#', '=', '/'].includes(a.resultado);
-}
-
-function agruparRallies(acciones) {
-  const ordenadas = [...acciones].sort((a, b) => (a.id || 0) - (b.id || 0));
-  const rallies = [];
-  let actual = [];
-
-  for (const accion of ordenadas) {
-    actual.push(accion);
-    if (esAccionTerminal(accion)) {
-      rallies.push(actual);
-      actual = [];
-    }
-  }
-  if (actual.length > 0) rallies.push(actual);
-  return rallies;
 }
 
 function processActionForStats(a, stats) {

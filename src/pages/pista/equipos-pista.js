@@ -31,7 +31,10 @@ function renderPage(container) {
                     <div>
                         <h1 class="page-title" style="margin: 0; font-size: 1.5rem;">🏐 Equipos</h1>
                     </div>
-                    <button class="btn btn-primary" id="btn-nuevo-equipo" title="Nuevo Equipo">➕ Nuevo</button>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn btn-secondary" id="btn-importar-equipo" title="Importar plantilla desde VolleyStats Tablet">📥 Importar</button>
+                        <button class="btn btn-primary" id="btn-nuevo-equipo" title="Nuevo Equipo">➕ Nuevo</button>
+                    </div>
                 </div>
                 <div id="equipos-list" class="flex flex-col gap-12" style="display:flex; flex-direction:column; gap:10px;"></div>
             </div>
@@ -72,6 +75,7 @@ function renderPage(container) {
     renderEquipos();
 
     document.getElementById('btn-nuevo-equipo').addEventListener('click', () => openModalEquipo(null));
+    document.getElementById('btn-importar-equipo').addEventListener('click', importarEquipo);
     document.getElementById('btn-cancelar-equipo').addEventListener('click', closeModalEquipo);
     document.getElementById('btn-guardar-equipo').addEventListener('click', guardarEquipo);
     document.getElementById('modal-equipo').addEventListener('click', (e) => {
@@ -103,6 +107,7 @@ function renderEquipos() {
                     <h3 style="margin: 0; font-size: 1.1rem;">${escapeHtml(eq.nombre)}</h3>
                 </div>
                 <div style="display: flex; gap: 4px;">
+                    <button class="icon-btn btn-export-eq" data-id="${eq.id}" title="Exportar plantilla para la tablet" style="background:none; border:none; cursor:pointer;">📤</button>
                     <button class="icon-btn btn-edit-eq" data-id="${eq.id}" title="Editar" style="background:none; border:none; cursor:pointer;">✏️</button>
                     <button class="icon-btn btn-del-eq" data-id="${eq.id}" title="Eliminar" style="background:none; border:none; cursor:pointer;">🗑️</button>
                 </div>
@@ -136,6 +141,31 @@ function renderEquipos() {
             eliminarEquipo(parseInt(btn.dataset.id, 10));
         });
     });
+
+    list.querySelectorAll('.btn-export-eq').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                const ruta = await window.apiPista.exportRosterForTablet(parseInt(btn.dataset.id, 10));
+                if (ruta) showToast('Plantilla exportada: ábrela con "Importar" en VolleyStats Tablet', 'success');
+            } catch (err) {
+                showToast(err.message || 'Error al exportar la plantilla', 'error');
+            }
+        });
+    });
+}
+
+async function importarEquipo() {
+    try {
+        const creado = await window.apiPista.importRosterFromTablet();
+        if (!creado) return; // canceló el diálogo
+        showToast(`Equipo "${creado.nombre}" importado`, 'success');
+        equiposCache = await window.apiPista.getEquipos();
+        renderEquipos();
+        seleccionarEquipo(creado.id);
+    } catch (err) {
+        showToast(err.message || 'Error al importar la plantilla', 'error');
+    }
 }
 
 function openModalEquipo(eq) {
@@ -217,6 +247,7 @@ async function seleccionarEquipo(id) {
 }
 
 function renderRosterPanel() {
+    setTimeout(() => document.getElementById('btn-stats-equipo')?.addEventListener('click', () => router.navigate('estadisticas-equipo-pista', { equipoId: selectedEquipoId })), 0);
     const content = document.getElementById('roster-content');
     if (!content) return;
 
@@ -236,6 +267,7 @@ function renderRosterPanel() {
         <div style="margin-bottom: 20px;">
             <h2 style="margin:0 0 5px 0; font-size:1.5rem;">${escapeHtml(eq.nombre)} - Plantilla</h2>
             <p style="margin:0; color:#888;">Gestiona los jugadores y sus dorsales.</p>
+            <button class="btn btn-primary" id="btn-stats-equipo" style="margin-top:12px">📈 Estadísticas del equipo</button>
         </div>
         <div style="overflow-x: auto;">
             <table class="roster-table" style="width: 100%; border-collapse: collapse; text-align: left;">

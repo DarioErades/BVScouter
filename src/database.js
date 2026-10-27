@@ -1,3 +1,4 @@
+import { resumirRallies } from './utils/rallies-pista.js';
 import initSqlJs from 'sql.js';
 import { app } from 'electron';
 import path from 'node:path';
@@ -461,6 +462,13 @@ export async function initDatabasePista() {
     CREATE INDEX IF NOT EXISTS idx_jugadores_pista_equipo ON jugadores_pista(equipo_id);
     CREATE INDEX IF NOT EXISTS idx_partidos_pista_carpeta ON partidos_pista(carpeta_id);
     CREATE INDEX IF NOT EXISTS idx_roster_partido ON roster_partido(partido_id);
+
+    -- Ids con los que otras apps (tablet) conocen a un equipo: permiten reconocerlo al importar.
+    CREATE TABLE IF NOT EXISTS equipos_vinculos_pista (
+      uid TEXT PRIMARY KEY,
+      equipo_id INTEGER NOT NULL,
+      FOREIGN KEY (equipo_id) REFERENCES equipos_pista(id) ON DELETE CASCADE
+    );
   `);
 
   dbPista.exec(`CREATE TABLE IF NOT EXISTS schema_migrations_pista (
@@ -469,14 +477,24 @@ export async function initDatabasePista() {
   )`);
 
   const hasColumn = (table, column) => dbPista.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === column);
-  const applyMigration = (version, changes) => {
+  const applyMigration = (version, changes, despues) => {
     if (dbPista.prepare('SELECT version FROM schema_migrations_pista WHERE version = ?').get(version)) return;
     dbPista.transaction(() => {
       changes.forEach(({ table, column, definition }) => {
         if (!hasColumn(table, column)) dbPista.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
       });
+      if (despues) despues();
       dbPista.prepare('INSERT INTO schema_migrations_pista (version) VALUES (?)').run(version);
     })();
+  };
+
+  // Rellena punto_num y saque_inicio de los partidos ya guardados, deduciéndolos una sola vez.
+  const rellenarPuntos = () => {
+    const upd = dbPista.prepare('UPDATE acciones_pista SET punto_num = ?, saque_inicio = ? WHERE id = ?');
+    dbPista.prepare('SELECT DISTINCT partido_id FROM acciones_pista').all().forEach(({ partido_id }) => {
+      const acciones = dbPista.prepare('SELECT * FROM acciones_pista WHERE partido_id = ? ORDER BY id').all(partido_id);
+      resumirRallies(acciones).forEach(r => r.acciones.forEach(a => upd.run(r.numero, r.saqueInicio, a.id)));
+    });
   };
 
   applyMigration(1, [
@@ -490,6 +508,17 @@ export async function initDatabasePista() {
   ]);
   applyMigration(3, [
     { table: 'acciones_pista', column: 'scouting_version', definition: 'INTEGER DEFAULT 0' }
+  ]);
+  applyMigration(4, [
+    { table: 'acciones_pista', column: 'punto_num', definition: 'INTEGER' },
+    { table: 'acciones_pista', column: 'saque_inicio', definition: 'TEXT' }
+  ], rellenarPuntos);
+  applyMigration(5, [
+    { table: 'partidos_pista', column: 'calidad_ignorados', definition: "TEXT DEFAULT '[]'" }
+  ]);
+  applyMigration(6, [
+    { table: 'partidos_pista', column: 'origen_uid', definition: 'TEXT' },
+    { table: 'partidos_pista', column: 'tiempo_jugado', definition: 'TEXT' }
   ]);
 
   return dbPista;

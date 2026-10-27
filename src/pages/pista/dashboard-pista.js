@@ -1,7 +1,7 @@
 // pagina del dashboard pista
 
 import { router } from '../../router.js';
-import { formatDate } from '../../utils/helpers.js';
+import { formatDate, showToast } from '../../utils/helpers.js';
 
 let currentFolderId = null;
 let allCarpetas = [];
@@ -61,6 +61,7 @@ function renderDashboard(container) {
                     <div class="explorer-actions flex gap-8" style="display: flex; align-items: center; gap: 8px;">
                         <input type="text" id="input-buscar-partido" class="form-input" placeholder="🔍 Buscar partido..." value="${searchQuery.replace(/"/g, '&quot;')}" style="width: 220px; background: #0f172a; border: 1px solid #334155; color: white; padding: 7px 12px; border-radius: 6px; font-size: 0.85rem;">
                         ${!currentFolderId ? `<button class="btn btn-sm btn-secondary" id="btn-nueva-carpeta">📁 Nueva Carpeta</button>` : ''}
+                        <button class="btn btn-sm btn-secondary" id="btn-importar-tablet" title="Importar un partido exportado desde VolleyStats Tablet">📲 Importar de tablet</button>
                         <button class="btn btn-primary btn-sm" id="btn-nuevo-partido-dash">✚ Nuevo Partido</button>
                     </div>
                 </div>
@@ -279,6 +280,19 @@ function bindEvents(container) {
     // Nuevo Partido
     document.getElementById('btn-nuevo-partido-dash')?.addEventListener('click', () => {
         router.navigate('nuevo-partido-pista');
+    });
+
+    // Importar partido exportado desde la tablet
+    document.getElementById('btn-importar-tablet')?.addEventListener('click', async () => {
+        try {
+            const partidoId = await window.apiPista.importPartidoPistaFromTablet();
+            if (!partidoId) return; // cancelado
+            showToast('Partido importado. Añádele el vídeo desde sus ajustes para completar el informe.', 'success');
+            allPartidos = await window.apiPista.getPartidosPista();
+            renderDashboard(container);
+        } catch (err) {
+            showToast(err.message || 'Error al importar el partido', 'error');
+        }
     });
 
     // Scouting e Informe y Eliminar

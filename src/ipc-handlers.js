@@ -327,6 +327,10 @@ ipcMain.handle('stats:getByPartido', (_event, partidoId) => {
 // para cachear vídeos de YouTube descargados y no bajarlos cada vez
 const ytCache = new Map();
 
+// Carpeta persistente (junto a la base de datos) donde se guardan los vídeos de YouTube ya
+// descargados, para no perderlos si el sistema limpia la carpeta temporal.
+const getYoutubeCacheDir = () => path.join(app.getPath('userData'), 'youtube_cache');
+
 async function resolverVideoPath(partido, onProgress) {
   if (partido.video_tipo === 'local') {
     if (!fs.existsSync(partido.video_url)) {
@@ -340,7 +344,10 @@ async function resolverVideoPath(partido, onProgress) {
       return ytCache.get(partido.video_url);
     }
 
-    const tmpDir = path.join(os.tmpdir(), 'bvscouter_yt');
+    // En una carpeta persistente (no en la temporal del sistema): si se guardara en el
+    // temporal, Windows la puede vaciar solo, y el vídeo ya descargado se perdería y volvería
+    // a bajarse entero la próxima vez.
+    const tmpDir = getYoutubeCacheDir();
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
     const safeId = partido.video_url.replace(/[^a-zA-Z0-9]/g, '_').slice(-60);
@@ -369,6 +376,39 @@ ipcMain.handle('video:resolveYoutube', async (event, videoUrl) => {
   return `local-video://video?path=${encodeURIComponent(filePath)}`;
 });
 
+// Vacía la carpeta de vídeos de YouTube descargados (la comparten pista y playa). Devuelve
+// cuántos archivos y cuántos MB se han liberado.
+ipcMain.handle('video:clearYoutubeCache', () => {
+  const dir = getYoutubeCacheDir();
+  if (!fs.existsSync(dir)) return { archivos: 0, mb: 0 };
+  let archivos = 0;
+  let bytes = 0;
+  for (const nombre of fs.readdirSync(dir)) {
+    const ruta = path.join(dir, nombre);
+    try {
+      bytes += fs.statSync(ruta).size;
+      fs.unlinkSync(ruta);
+      archivos++;
+    } catch (e) { /* seguimos con el resto */ }
+  }
+  return { archivos, mb: Math.round(bytes / (1024 * 1024)) };
+});
+
+// Proceso de ffmpeg en curso (para poder cancelarlo) y ajustes de calidad/resolución: el mismo
+// esquema que usa el generador de vídeos de pista (ver ipc-handlers-pista.js).
+let ffmpegPlayaActivo = null;
+const CRF_POR_CALIDAD = { alta: 18, media: 23, baja: 28 };
+const ESCALA_POR_RESOLUCION = { '720': 'scale=-2:720', '1080': 'scale=-2:1080' };
+
+ipcMain.handle('video:cancel', () => {
+  if (ffmpegPlayaActivo) {
+    ffmpegPlayaActivo.kill('SIGKILL');
+    ffmpegPlayaActivo = null;
+    return true;
+  }
+  return false;
+});
+
 ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) => {
   const db = getDB();
   
@@ -378,7 +418,11 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   }
 
   // resolvemos la ruta real del vídeo (descarga si es YouTube)
-  const videoPath = await resolverVideoPath(partido);
+  // Si el vídeo es de YouTube y no está cacheado, esto puede tardar bastante en descargarlo:
+  // avisamos a la barra de progreso para que no parezca que el export está colgado en 0%.
+  const videoPath = await resolverVideoPath(partido, (prog) => {
+    _event.sender.send('video:downloading', prog);
+  });
 
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: 'Guardar Vídeo',
@@ -537,16 +581,42 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
   const mostrarAcciones = !!filters.mostrar_acciones;
   const textFiles = [];
   const sessionId = Date.now();
-  
-  let ffmpegArgs = ['-y'];
+  const crf = CRF_POR_CALIDAD[filters.calidad] ?? CRF_POR_CALIDAD.media;
+  const escala = ESCALA_POR_RESOLUCION[filters.resolucion]; // undefined = resolución original
+  // La portada exige que todos los clips compartan resolución (lo pide el filtro concat),
+  // así que solo se ofrece cuando se ha elegido una resolución explícita.
+  const conPortada = !!filters.portada && !!escala;
 
-  intervals.forEach((interval, i) => {
+  let ffmpegArgs = ['-y'];
+  let siguienteIndice = 0;
+
+  if (conPortada) {
+      const duracionPortada = 2.5;
+      const anchoPortada = filters.resolucion === '1080' ? 1920 : 1280;
+      const altoPortada = filters.resolucion === '1080' ? 1080 : 720;
+      ffmpegArgs.push('-f', 'lavfi', '-t', String(duracionPortada), '-i', `color=c=black:s=${anchoPortada}x${altoPortada}:r=25`);
+      if (hasAudio) ffmpegArgs.push('-f', 'lavfi', '-t', String(duracionPortada), '-i', 'anullsrc=r=44100:cl=stereo');
+      const titulo = String(filters.titulo || 'Resumen del partido').replace(/[':\\]/g, ' ');
+      const iPortada = siguienteIndice;
+      filterGraph += `[${iPortada}:v]drawtext=text='${titulo}':fontcolor=white:fontsize=54:x=(w-tw)/2:y=(h-th)/2[v${iPortada}];\n`;
+      if (hasAudio) {
+          filterGraph += `[${iPortada + 1}:a]anull[a${iPortada}];\n`;
+          concatInputs += `[v${iPortada}][a${iPortada}]`;
+      } else {
+          concatInputs += `[v${iPortada}]`;
+      }
+      siguienteIndice += hasAudio ? 2 : 1;
+  }
+
+  intervals.forEach((interval, idx) => {
+      const i = siguienteIndice + idx;
       const duration = interval.end - interval.start;
       ffmpegArgs.push('-ss', interval.start.toFixed(3), '-t', duration.toFixed(3), '-i', videoPath);
 
       const text = ` ${interval.score} `;
       const conMarcador = filters.con_marcador !== false;
       let vFilters = ['setpts=PTS-STARTPTS'];
+      if (escala) vFilters.push(escala);
 
       if (conMarcador) {
           vFilters.push(`drawtext=text='${text}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=15:x=w-tw-30:y=30`);
@@ -563,7 +633,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
       }
 
       filterGraph += `[${i}:v]${vFilters.join(',')}[v${i}];\n`;
-      
+
       if (hasAudio) {
           filterGraph += `[${i}:a]asetpts=PTS-STARTPTS[a${i}];\n`;
           concatInputs += `[v${i}][a${i}]`;
@@ -571,24 +641,26 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
           concatInputs += `[v${i}]`;
       }
   });
-  
-  filterGraph += `${concatInputs}concat=n=${intervals.length}:v=1:a=${hasAudio ? 1 : 0}[outv]${hasAudio ? '[outa]' : ''}`;
-  
+
+  const totalClips = intervals.length + (conPortada ? 1 : 0);
+  filterGraph += `${concatInputs}concat=n=${totalClips}:v=1:a=${hasAudio ? 1 : 0}[outv]${hasAudio ? '[outa]' : ''}`;
+
   fs.writeFileSync(filterFilePath, filterGraph);
-  
+
   try {
       // re-encode the segments, fixes glitching perfectly
       ffmpegArgs.push('-filter_complex_script', filterFilePath, '-map', '[outv]');
       if (hasAudio) {
           ffmpegArgs.push('-map', '[outa]');
       }
-      ffmpegArgs.push('-preset', 'superfast', filePath);
-      
-      const totalDuration = intervals.reduce((acc, curr) => acc + (curr.end - curr.start), 0);
-      
+      ffmpegArgs.push('-preset', 'superfast', '-crf', String(crf), filePath);
+
+      const totalDuration = intervals.reduce((acc, curr) => acc + (curr.end - curr.start), 0) + (conPortada ? 2.5 : 0);
+
       await new Promise((resolve, reject) => {
           const ffmpeg = spawn(getFfmpegPath(), ffmpegArgs);
-          
+          ffmpegPlayaActivo = ffmpeg;
+
           ffmpeg.stderr.on('data', (data) => {
               const str = data.toString();
               try { fs.appendFileSync('/tmp/ffmpeg_debug.log', str); } catch (e) {}
@@ -598,7 +670,7 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
                   const minutes = parseInt(timeMatch[2], 10);
                   const seconds = parseFloat(timeMatch[3]);
                   const currentTime = (hours * 3600) + (minutes * 60) + seconds;
-                  
+
                   console.log(`FFmpeg progress: ${currentTime.toFixed(2)}s / ${totalDuration.toFixed(2)}s`);
                   if (totalDuration > 0) {
                       let pct = Math.round((currentTime / totalDuration) * 100);
@@ -608,18 +680,25 @@ ipcMain.handle('video:generateHighlights', async (_event, partidoId, filters) =>
                   }
               }
           });
-          
-          ffmpeg.on('close', (code) => {
+
+          ffmpeg.on('close', (code, signal) => {
+              ffmpegPlayaActivo = null;
               if (code === 0) resolve();
+              else if (signal === 'SIGKILL' || signal === 'SIGTERM') reject(new Error('CANCELADO'));
               else reject(new Error('FFmpeg exited con código ' + code));
           });
           ffmpeg.on('error', reject);
       });
-      
+
       _event.sender.send('video:progress', 100);
       shell.openPath(filePath);
       return filePath;
   } catch (err) {
+      ffmpegPlayaActivo = null;
+      if (err.message === 'CANCELADO') {
+          try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e) {}
+          throw new Error('CANCELADO');
+      }
       console.error('Error con FFmpeg:', err);
       throw new Error('Fallo al generar el vídeo. FFmpeg no pudo procesarlo.');
   } finally {

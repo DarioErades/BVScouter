@@ -94,6 +94,18 @@ function renderPage(container) {
             </div>
 
             <div class="card settings-card" style="margin-bottom: 16px; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border);">
+                <h3 class="settings-section-title" style="margin-bottom: 16px; color: var(--text-primary);">📲 Tablet</h3>
+                <div class="setting-row" style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+                    <div>
+                        <div class="setting-label" style="font-weight: 500; margin-bottom: 4px;">Importar todos los partidos</div>
+                        <div class="setting-hint" style="font-size: 13px; color: var(--text-secondary);">Elige el archivo «Exportar todos los partidos» de la tablet (puedes seleccionar varios, de distintas tablets). Los partidos se asignan solos al equipo correcto —por su id, nombre o plantilla— y los ya importados se omiten. Luego, en Equipos → «Estadísticas del equipo», verás el análisis conjunto.</div>
+                    </div>
+                    <button class="btn btn-primary" id="btn-importar-todo-tablet">📥 Importar</button>
+                </div>
+                <div id="resultado-import-tablet" style="margin-top:12px; font-size:13px; color: var(--text-secondary);"></div>
+            </div>
+
+            <div class="card settings-card" style="margin-bottom: 16px; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border);">
                 <h3 class="settings-section-title" style="margin-bottom: 16px; color: var(--text-primary);">💾 Base de Datos (Pista)</h3>
                 <div class="setting-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <div>
@@ -108,6 +120,13 @@ function renderPage(container) {
                         <div class="setting-hint" style="font-size: 13px; color: var(--text-secondary);">Sustituye los datos actuales de pista por una copia anterior</div>
                     </div>
                     <button class="btn btn-secondary" id="btn-restore-db-pista" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">📥 Restaurar</button>
+                </div>
+                <div class="setting-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                    <div>
+                        <div class="setting-label" style="font-weight: 500; margin-bottom: 4px;">Vaciar caché de vídeos de YouTube</div>
+                        <div class="setting-hint" style="font-size: 13px; color: var(--text-secondary);">Borra los vídeos ya descargados (se comparte con voley playa). La próxima vez que hagan falta se volverán a descargar.</div>
+                    </div>
+                    <button class="btn btn-secondary" id="btn-clear-yt-cache">🗑️ Vaciar</button>
                 </div>
             </div>
 
@@ -191,6 +210,20 @@ function bindEvents(container) {
     container.querySelector('#player-select-mode')?.addEventListener('change', e => { setPrefs({ playerSelectMode: e.target.value }); showToast('Modo de selección actualizado', 'success'); });
     bindKeybindings(container, 'pista', () => renderPage(container));
 
+    container.querySelector('#btn-importar-todo-tablet')?.addEventListener('click', async () => {
+        const salida = container.querySelector('#resultado-import-tablet');
+        try {
+            const r = await window.apiPista.importarTodoDeTablet();
+            if (!r) return;
+            const metodo = { id: 'por id', nombre: 'por nombre', plantilla: 'por plantilla', nuevo: 'equipo nuevo' };
+            salida.innerHTML = `<b>${r.importados}</b> partido(s) importado(s), ${r.duplicados} ya existían${r.invalidos ? `, ${r.invalidos} archivo(s) no válidos` : ''}.` +
+                r.equipos.map(e => `<div>• ${e.nombre}: ${e.partidos} partido(s) (${e.metodos.map(m => metodo[m] || m).join(', ')})</div>`).join('');
+            showToast(`${r.importados} partidos importados`, 'success');
+        } catch (error) {
+            showToast(error.message || 'Error al importar', 'error');
+        }
+    });
+
     container.querySelector('#btn-backup-db-pista')?.addEventListener('click', async () => {
         try {
             const success = await window.apiPista.backupDatabasePista();
@@ -199,6 +232,16 @@ function bindEvents(container) {
             }
         } catch (error) {
             showToast('Error al guardar copia: ' + error.message, 'error');
+        }
+    });
+
+    container.querySelector('#btn-clear-yt-cache')?.addEventListener('click', async () => {
+        if (!confirm('¿Borrar los vídeos de YouTube ya descargados? La próxima vez que se necesiten se descargarán de nuevo.')) return;
+        try {
+            const { archivos, mb } = await window.api.clearYoutubeCache();
+            showToast(archivos ? `Caché vaciada: ${archivos} vídeo(s), ${mb} MB liberados` : 'La caché ya estaba vacía', 'success');
+        } catch (error) {
+            showToast('Error al vaciar la caché: ' + error.message, 'error');
         }
     });
 

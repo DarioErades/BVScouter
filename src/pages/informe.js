@@ -4,6 +4,7 @@ import { router } from '../router.js';
 import { showToast, formatDate, formatTimestamp, escapeHtml, getChartColors, getChartColorsAlpha } from '../utils/helpers.js';
 import { calcularStats, detectarPatrones } from '../utils/stats-calculator.js';
 import { generateCustomPdfHtml } from '../utils/pdf-generator.js';
+import { elegirSeccionesPdf, filtrarSeccionesPdf } from '../utils/pdf-secciones.js';
 import { actionsForReview, reviewCategories } from '../utils/scouting-review.js';
 
 // guardamos refs a los charts para destruirlos al salir
@@ -480,6 +481,28 @@ export function registerInforme() {
                                     💯 Incluir marcador en el vídeo
                                 </label>
                             </div>
+                            <div style="flex: 1; min-width: 140px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Calidad</label>
+                                <select id="hl-calidad" class="form-input">
+                                    <option value="alta">Alta</option>
+                                    <option value="media" selected>Media</option>
+                                    <option value="baja">Baja</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1; min-width: 140px;">
+                                <label style="display: block; color: #94a3b8; font-size: 13px; margin-bottom: 8px;">Resolución</label>
+                                <select id="hl-resolucion" class="form-input">
+                                    <option value="">Original</option>
+                                    <option value="720">720p</option>
+                                    <option value="1080">1080p</option>
+                                </select>
+                            </div>
+                            <div style="flex: 2; min-width: 220px; display: flex; align-items: flex-end;">
+                                <label id="hl-portada-wrap" style="display:none; align-items: center; gap: 10px; cursor: pointer; color: #e2e8f0; font-size: 13px;">
+                                    <input type="checkbox" id="hl-portada" style="width: 16px; height: 16px; accent-color: #38bdf8;">
+                                    🎬 Añadir portada con el nombre del partido
+                                </label>
+                            </div>
                             <div style="flex: 3; display: flex; flex-direction: column; justify-content: flex-end; padding-top: 10px; min-width: 250px;">
                                 <div id="hl-progress-container" style="display: none; margin-bottom: 8px;">
                                     <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
@@ -489,6 +512,7 @@ export function registerInforme() {
                                     <div style="width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
                                         <div id="hl-progress-bar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.2s;"></div>
                                     </div>
+                                    <button id="btn-cancelar-highlights" class="btn btn-sm btn-secondary" style="margin-top: 6px; width: 100%; color: #ef4444;">✖ Cancelar</button>
                                 </div>
                                 <button id="btn-generar-highlights" class="btn btn-primary" style="width: 100%;">✂️ Generar Vídeo</button>
                             </div>
@@ -528,8 +552,12 @@ export function registerInforme() {
             });
 
             document.getElementById('btn-exportar-pdf').addEventListener('click', async () => {
+                const doc = new DOMParser().parseFromString(generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accionesFiltradas), 'text/html');
+                const seleccion = await elegirSeccionesPdf(doc.body, 'volleystats.pdf.playa');
+                if (!seleccion) return;
+                filtrarSeccionesPdf(doc.body, seleccion);
+                const reportHTML = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
                 showToast('Generando PDF rediseñado...', 'info');
-                const reportHTML = generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accionesFiltradas);
                 try {
                     const result = await window.api.generatePDF(reportHTML, 2500);
                     if (result) showToast('PDF guardado correctamente', 'success');
@@ -547,6 +575,13 @@ export function registerInforme() {
                 router.navigate('dashboard');
             });
 
+            // La portada solo tiene sentido si todos los clips comparten resolución (lo exige ffmpeg).
+            document.getElementById('hl-resolucion')?.addEventListener('change', (e) => {
+                const wrap = document.getElementById('hl-portada-wrap');
+                if (wrap) wrap.style.display = e.target.value ? 'flex' : 'none';
+                if (!e.target.value) { const cb = document.getElementById('hl-portada'); if (cb) cb.checked = false; }
+            });
+
             // evento generar highlights
             const btnHighlights = document.getElementById('btn-generar-highlights');
             if (btnHighlights) {
@@ -561,6 +596,18 @@ export function registerInforme() {
                         }
                     });
                 }
+                // Si el vídeo es de YouTube y no está cacheado, antes de generar el resumen hay
+                // que descargarlo entero; sin esto la barra se queda en "0%" y parece colgada.
+                if (window.api && window.api.onVideoDownloading) {
+                    window.api.onVideoDownloading((prog) => {
+                        const bar = document.getElementById('hl-progress-bar');
+                        const txt = document.getElementById('hl-progress-text');
+                        if (bar && txt) {
+                            bar.style.width = (prog?.percent || 0) + '%';
+                            txt.textContent = `Descargando vídeo: ${prog?.text || (Math.round(prog?.percent || 0) + '%')}`;
+                        }
+                    });
+                }
 
                 btnHighlights.addEventListener('click', async () => {
                     const filters = {};
@@ -570,7 +617,7 @@ export function registerInforme() {
                     const res = document.getElementById('hl-resultado').value;
                     const mPre = document.getElementById('hl-margin-pre').value;
                     const mPost = document.getElementById('hl-margin-post').value;
-                    
+
                     const setNum = document.getElementById('hl-set')?.value;
                     const mostrarAcciones = document.getElementById('hl-mostrar-acciones')?.checked;
                     const conMarcador = document.getElementById('hl-con-marcador')?.checked !== false; // por defecto true
@@ -584,16 +631,24 @@ export function registerInforme() {
                     filters.con_marcador = conMarcador;
                     filters.pre_margin = mPre ? parseFloat(mPre) : 3;
                     filters.post_margin = mPost ? parseFloat(mPost) : 1;
+                    filters.calidad = document.getElementById('hl-calidad')?.value || 'media';
+                    filters.resolucion = document.getElementById('hl-resolucion')?.value || '';
+                    filters.portada = !!document.getElementById('hl-portada')?.checked;
+                    filters.titulo = `${partido.jugador1_nombre || ''} / ${partido.jugador2_nombre || ''}`.trim();
 
                     btnHighlights.disabled = true;
                     btnHighlights.textContent = '⏳ Generando (puede tardar)...';
-                    
+
                     const progContainer = document.getElementById('hl-progress-container');
                     const progBar = document.getElementById('hl-progress-bar');
                     const progText = document.getElementById('hl-progress-text');
+                    const btnCancelar = document.getElementById('btn-cancelar-highlights');
                     if (progContainer) progContainer.style.display = 'block';
                     if (progBar) progBar.style.width = '0%';
                     if (progText) progText.textContent = '0%';
+
+                    const onCancelar = () => window.api.cancelVideoHighlights();
+                    btnCancelar?.addEventListener('click', onCancelar);
 
                     try {
                         const path = await window.api.generateVideoHighlights(params.partidoId, filters);
@@ -601,8 +656,10 @@ export function registerInforme() {
                             showToast('Vídeo generado con éxito', 'success');
                         }
                     } catch (err) {
-                        showToast(err.message || 'Error al generar vídeo', 'error');
+                        if (err.message && err.message.includes('CANCELADO')) showToast('Generación cancelada', 'info');
+                        else showToast(err.message || 'Error al generar vídeo', 'error');
                     } finally {
+                        btnCancelar?.removeEventListener('click', onCancelar);
                         btnHighlights.disabled = false;
                         btnHighlights.textContent = '✂️ Generar Vídeo';
                         if (progContainer) progContainer.style.display = 'none';

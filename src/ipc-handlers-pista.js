@@ -7,6 +7,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { descargarYtDlp } from './utils/ytdlp-helper.js';
 import { getFfmpegPath, tieneAudio } from './utils/ffmpeg-helper.js';
+import { resumirRallies, siguientePunto } from './utils/rallies-pista.js';
+import { buscarEquipoCoincidente } from './utils/equipos-vinculo-pista.js';
+import { randomUUID } from 'node:crypto';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -85,6 +88,90 @@ ipcMain.handle('pista:jugadores:delete', (_event, id) => {
   return db.prepare('DELETE FROM jugadores_pista WHERE id = ?').run(id);
 });
 
+// Del nombre de posición al código corto que usa la app de tablet (S/OP/MB/OH/L).
+const POS_A_CODIGO = { colocador: 'S', opuesto: 'OP', central: 'MB', receptor: 'OH', 'líbero': 'L', libero: 'L' };
+
+ipcMain.handle('pista:equipos:exportRosterForTablet', async (_event, equipoId) => {
+  const db = getDBPista();
+  const equipo = db.prepare('SELECT * FROM equipos_pista WHERE id = ?').get(equipoId);
+  if (!equipo) throw new Error('Equipo no encontrado.');
+  const jugadores = db.prepare('SELECT * FROM jugadores_pista WHERE equipo_id = ? AND activo = 1 ORDER BY dorsal').all(equipoId);
+
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Exportar plantilla para VolleyStats Tablet',
+    defaultPath: `plantilla_${equipo.nombre}.json`.replace(/[^\w.-]+/g, '_'),
+    filters: [{ name: 'Plantilla (JSON)', extensions: ['json'] }]
+  });
+  if (canceled || !filePath) return null;
+
+  // Id estable del equipo: la tablet lo conserva y lo devuelve en cada partido exportado, así el
+  // escritorio sabe de qué equipo es sin depender del nombre.
+  let vinculo = db.prepare("SELECT uid FROM equipos_vinculos_pista WHERE equipo_id = ? AND uid LIKE 'pc-%'").get(equipoId);
+  if (!vinculo) {
+    vinculo = { uid: `pc-${randomUUID()}` };
+    db.prepare('INSERT INTO equipos_vinculos_pista (uid, equipo_id) VALUES (?, ?)').run(vinculo.uid, equipoId);
+  }
+
+  const payload = {
+    format: 'volleystats-roster', version: 1, exportedAt: new Date().toISOString(),
+    team: equipo.nombre, teamUid: vinculo.uid,
+    roster: jugadores.map(j => ({
+      dorsal: j.dorsal, name: [j.nombre, j.apellidos].filter(Boolean).join(' ').trim(),
+      pos: j.es_libero ? 'L' : (POS_A_CODIGO[(j.posicion || '').trim().toLowerCase()] || 'OH')
+    }))
+  };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2));
+  return filePath;
+});
+
+const CODIGO_A_POS = { S: 'Colocador', OP: 'Opuesto', MB: 'Central', OH: 'Receptor', L: 'Líbero' };
+
+ipcMain.handle('pista:equipos:importRosterFromTablet', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Importar plantilla desde VolleyStats Tablet',
+    filters: [{ name: 'Plantilla (JSON)', extensions: ['json'] }],
+    properties: ['openFile']
+  });
+  if (canceled || !filePaths?.length) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(fs.readFileSync(filePaths[0], 'utf8'));
+  } catch {
+    throw new Error('El archivo no es un JSON válido.');
+  }
+  if (payload?.format !== 'volleystats-roster' || !Array.isArray(payload.roster)) {
+    throw new Error('Ese archivo no es una plantilla de VolleyStats Tablet.');
+  }
+
+  const db = getDBPista();
+  const nombre = cleanPistaText(payload.team || 'Equipo importado', 160) || 'Equipo importado';
+  const uidEquipo = cleanPistaText(payload.teamUid, 80);
+  const vinculado = uidEquipo && db.prepare('SELECT e.id, e.nombre FROM equipos_vinculos_pista v JOIN equipos_pista e ON e.id = v.equipo_id WHERE v.uid = ?').get(uidEquipo);
+  if (vinculado) return { id: vinculado.id, nombre: vinculado.nombre };
+  const equipoStmt = db.prepare('INSERT INTO equipos_pista (nombre, abreviatura, notas) VALUES (@nombre, @abreviatura, @notas)');
+  const equipoResult = equipoStmt.run({ nombre, abreviatura: '', notas: '' });
+  const equipoId = equipoResult.lastInsertRowid;
+
+  const jugadorStmt = db.prepare(`
+    INSERT INTO jugadores_pista (equipo_id, dorsal, nombre, apellidos, posicion, es_libero)
+    VALUES (@equipo_id, @dorsal, @nombre, @apellidos, @posicion, @es_libero)
+  `);
+  for (const j of payload.roster) {
+    const esLibero = j.pos === 'L' ? 1 : 0;
+    jugadorStmt.run({
+      equipo_id: equipoId,
+      dorsal: Number.isFinite(j.dorsal) ? j.dorsal : null,
+      nombre: cleanPistaText(j.name, 160) || 'Jugador',
+      apellidos: '',
+      posicion: CODIGO_A_POS[j.pos] || 'Receptor',
+      es_libero: esLibero
+    });
+  }
+  if (uidEquipo) db.prepare("INSERT OR IGNORE INTO equipos_vinculos_pista (uid, equipo_id) VALUES (?, ?)").run(uidEquipo, equipoId);
+  return { id: equipoId, nombre };
+});
+
 // ---- CARPETAS PISTA ----
 ipcMain.handle('pista:carpetas:getAll', () => {
   const db = getDBPista();
@@ -133,8 +220,8 @@ ipcMain.handle('pista:partidos:create', (_event, data) => {
 
 ipcMain.handle('pista:partidos:update', (_event, id, data) => {
   const db = getDBPista();
-  const safeData = pickPista(data, ['fecha', 'torneo', 'fase', 'equipo_id', 'equipo_nombre', 'rival_nombre', 'video_tipo', 'video_url', 'resultado', 'resultado_parciales', 'notas', 'finalizado', 'carpeta_id', 'llevar_rotaciones', 'rotaciones_iniciales']);
-  ['fecha', 'torneo', 'fase', 'equipo_nombre', 'rival_nombre', 'video_tipo', 'video_url', 'resultado', 'resultado_parciales', 'notas', 'rotaciones_iniciales'].forEach(key => { if (key in safeData) safeData[key] = cleanPistaText(safeData[key]); });
+  const safeData = pickPista(data, ['fecha', 'torneo', 'fase', 'equipo_id', 'equipo_nombre', 'rival_nombre', 'video_tipo', 'video_url', 'resultado', 'resultado_parciales', 'notas', 'finalizado', 'carpeta_id', 'llevar_rotaciones', 'rotaciones_iniciales', 'calidad_ignorados']);
+  ['fecha', 'torneo', 'fase', 'equipo_nombre', 'rival_nombre', 'video_tipo', 'video_url', 'resultado', 'resultado_parciales', 'notas', 'rotaciones_iniciales', 'calidad_ignorados'].forEach(key => { if (key in safeData) safeData[key] = cleanPistaText(safeData[key]); });
   const campos = Object.keys(safeData);
   if (campos.length === 0) return true;
   const sets = campos.map(c => `${c} = @${c}`).join(', ');
@@ -195,19 +282,35 @@ ipcMain.handle('pista:acciones:getByPartido', (_event, partidoId) => {
   return db.prepare('SELECT * FROM acciones_pista WHERE partido_id = ? ORDER BY id').all(partidoId);
 });
 
-ipcMain.handle('pista:acciones:create', (_event, data) => {
-  const db = getDBPista();
+// Inserta una acción calculando su número de punto y quién sacaba al empezarlo (si no vienen dados).
+function insertarAccionPista(db, data) {
   const stmt = db.prepare(`
-    INSERT INTO acciones_pista (partido_id, dorsal, rotacion, tipo_accion, subtipo, resultado, set_numero, marcador_local, marcador_rival, marcador_pre_local, marcador_pre_rival, equipo_al_saque, scouting_version, video_timestamp, zona_origen, zona_destino, es_favorito)
-    VALUES (@partido_id, @dorsal, @rotacion, @tipo_accion, @subtipo, @resultado, @set_numero, @marcador_local, @marcador_rival, @marcador_pre_local, @marcador_pre_rival, @equipo_al_saque, @scouting_version, @video_timestamp, @zona_origen, @zona_destino, @es_favorito)
+    INSERT INTO acciones_pista (partido_id, dorsal, rotacion, tipo_accion, subtipo, resultado, set_numero, marcador_local, marcador_rival, marcador_pre_local, marcador_pre_rival, equipo_al_saque, punto_num, saque_inicio, scouting_version, video_timestamp, zona_origen, zona_destino, es_favorito)
+    VALUES (@partido_id, @dorsal, @rotacion, @tipo_accion, @subtipo, @resultado, @set_numero, @marcador_local, @marcador_rival, @marcador_pre_local, @marcador_pre_rival, @equipo_al_saque, @punto_num, @saque_inicio, @scouting_version, @video_timestamp, @zona_origen, @zona_destino, @es_favorito)
   `);
-  const result = stmt.run({ marcador_pre_local: data.marcador_local ?? '0', marcador_pre_rival: data.marcador_rival ?? '0', equipo_al_saque: data.equipo_al_saque || 'local', scouting_version: 2, ...data, es_favorito: data.es_favorito ? 1 : 0 });
-  return result.lastInsertRowid;
-});
+  const base = {
+    marcador_pre_local: data.marcador_local ?? '0', marcador_pre_rival: data.marcador_rival ?? '0',
+    equipo_al_saque: data.equipo_al_saque || 'local', scouting_version: 2,
+    subtipo: '', video_timestamp: 0, zona_origen: 0, zona_destino: 0, rotacion: 1,
+    ...data
+  };
+  if (base.tipo_accion === 'fin_set') {
+    base.punto_num = base.punto_num ?? null;
+    base.saque_inicio = base.saque_inicio ?? null;
+  } else if (base.punto_num == null || base.saque_inicio == null) {
+    const previas = db.prepare('SELECT * FROM acciones_pista WHERE partido_id = ? AND set_numero = ? ORDER BY id').all(base.partido_id, base.set_numero ?? 1);
+    const sig = siguientePunto(previas, base.equipo_al_saque);
+    base.punto_num = base.punto_num ?? sig.punto_num;
+    base.saque_inicio = base.saque_inicio ?? sig.saque_inicio;
+  }
+  return stmt.run({ ...base, es_favorito: base.es_favorito ? 1 : 0 }).lastInsertRowid;
+}
+
+ipcMain.handle('pista:acciones:create', (_event, data) => insertarAccionPista(getDBPista(), data));
 
 ipcMain.handle('pista:acciones:update', (_event, id, data) => {
   const db = getDBPista();
-  const allowed = new Set(['dorsal', 'rotacion', 'tipo_accion', 'subtipo', 'resultado', 'set_numero', 'marcador_local', 'marcador_rival', 'marcador_pre_local', 'marcador_pre_rival', 'equipo_al_saque', 'scouting_version', 'video_timestamp', 'zona_origen', 'zona_destino', 'es_favorito']);
+  const allowed = new Set(['dorsal', 'rotacion', 'tipo_accion', 'subtipo', 'resultado', 'set_numero', 'marcador_local', 'marcador_rival', 'marcador_pre_local', 'marcador_pre_rival', 'equipo_al_saque', 'punto_num', 'saque_inicio', 'scouting_version', 'video_timestamp', 'zona_origen', 'zona_destino', 'es_favorito']);
   const safeData = Object.fromEntries(Object.entries(data).filter(([key]) => allowed.has(key)));
   const campos = Object.keys(safeData);
   if (campos.length === 0) return true;
@@ -354,8 +457,215 @@ ipcMain.handle('pista:db:restore', async () => {
   return true;
 });
 
+// ---- IMPORTAR PARTIDOS DE LA TABLET ----
+// Formatos exportados por VolleyStats Tablet (tablet/www/js/stats.js): un partido
+// ('volleystats-tablet') o todos a la vez ('volleystats-tablet-bulk'). Cada partido trae su roster
+// y las acciones ya en las columnas de acciones_pista. El equipo se reconoce por el id que le dio
+// la tablet, por el nombre o por la plantilla (ver equipos-vinculo-pista.js), así los partidos de
+// distintas tablets acaban en el mismo equipo y se pueden analizar juntos.
+function contextoImportacion(db) {
+  const jugadores = db.prepare('SELECT equipo_id, dorsal, nombre, apellidos FROM jugadores_pista').all();
+  const equipos = db.prepare('SELECT * FROM equipos_pista').all().map(e => ({
+    ...e,
+    jugadores: jugadores.filter(j => j.equipo_id === e.id).map(j => ({ dorsal: j.dorsal, nombre: [j.nombre, j.apellidos].filter(Boolean).join(' ') }))
+  }));
+  const vinculos = new Map(db.prepare('SELECT uid, equipo_id FROM equipos_vinculos_pista').all().map(v => [v.uid, v.equipo_id]));
+  return { equipos, vinculos };
+}
+
+function vincularEquipo(db, ctx, uid, equipoId) {
+  if (!uid || ctx.vinculos.has(uid)) return;
+  db.prepare('INSERT OR IGNORE INTO equipos_vinculos_pista (uid, equipo_id) VALUES (?, ?)').run(uid, equipoId);
+  ctx.vinculos.set(uid, equipoId);
+}
+
+function importarPartidoTablet(db, payload, ctx) {
+  const p = payload.partido || {};
+  const origenUid = cleanPistaText(p.origen_uid, 80);
+  if (origenUid) {
+    const ya = db.prepare('SELECT id FROM partidos_pista WHERE origen_uid = ?').get(origenUid);
+    if (ya) return { partidoId: ya.id, duplicado: true };
+  }
+
+  const nombreEquipo = cleanPistaText(p.equipo || 'Mi equipo', 160) || 'Mi equipo';
+  const nombreRival = cleanPistaText(p.rival || 'Rival', 160) || 'Rival';
+  const fecha = p.fecha || new Date().toISOString().slice(0, 10);
+  const uidEquipo = cleanPistaText(p.equipo_uid, 80);
+
+  const entrante = { uid: uidEquipo, nombre: nombreEquipo, roster: payload.roster.map(j => ({ dorsal: Number(j.dorsal), nombre: j.nombre })) };
+  const coincidencia = buscarEquipoCoincidente(ctx.equipos, ctx.vinculos, entrante);
+  let equipo; let metodo;
+  if (coincidencia) {
+    equipo = coincidencia.equipo; metodo = coincidencia.metodo;
+  } else {
+    const r = db.prepare('INSERT INTO equipos_pista (nombre) VALUES (?)').run(nombreEquipo);
+    equipo = { id: r.lastInsertRowid, nombre: nombreEquipo, jugadores: [] };
+    ctx.equipos.push(equipo); metodo = 'nuevo';
+  }
+  vincularEquipo(db, ctx, uidEquipo, equipo.id);
+
+  // Sin id de partido (archivos antiguos): se considera repetido si coincide equipo, fecha, rival y nº de acciones.
+  const candidatos = db.prepare('SELECT id FROM partidos_pista WHERE equipo_id = ? AND fecha = ? AND rival_nombre = ?').all(equipo.id, fecha, nombreRival);
+  for (const c of candidatos) {
+    const n = db.prepare("SELECT COUNT(*) AS n FROM acciones_pista WHERE partido_id = ? AND tipo_accion <> 'fin_set'").get(c.id).n;
+    if (n === payload.acciones.length) return { partidoId: c.id, duplicado: true };
+  }
+
+  const parciales = String(p.resultado_sets || '').split(',').map(x => x.trim()).filter(Boolean).map(x => x.split('-').map(Number));
+  const setsLocal = parciales.filter(([l, r]) => l > r).length;
+  const setsRival = parciales.filter(([l, r]) => r > l).length;
+  const partidoId = db.prepare(`
+    INSERT INTO partidos_pista (fecha, equipo_id, equipo_nombre, rival_nombre, video_tipo, video_url, resultado, resultado_parciales, notas, finalizado, llevar_rotaciones, origen_uid, tiempo_jugado)
+    VALUES (@fecha, @equipo_id, @equipo_nombre, @rival_nombre, 'ninguno', '', @resultado, @parciales, @notas, @finalizado, 0, @origen_uid, @tiempo_jugado)
+  `).run({
+    fecha, equipo_id: equipo.id, equipo_nombre: equipo.nombre, rival_nombre: nombreRival,
+    resultado: parciales.length ? `${setsLocal}-${setsRival}` : '',
+    parciales: cleanPistaText(p.resultado_sets, 200),
+    notas: 'Importado desde VolleyStats Tablet.',
+    finalizado: p.terminado ? 1 : 0,
+    origen_uid: origenUid || null,
+    tiempo_jugado: payload.tiempoJugado ? JSON.stringify(payload.tiempoJugado) : null
+  }).lastInsertRowid;
+
+  // Jugadores del equipo por dorsal, para no duplicar si ya existían.
+  const porDorsal = new Map(db.prepare('SELECT * FROM jugadores_pista WHERE equipo_id = ?').all(equipo.id).map(j => [Number(j.dorsal), j]));
+  const insertJugador = db.prepare('INSERT INTO jugadores_pista (equipo_id, dorsal, nombre, posicion, es_libero) VALUES (?, ?, ?, ?, ?)');
+  const insertRoster = db.prepare('INSERT INTO roster_partido (partido_id, dorsal, nombre, posicion, es_libero, jugador_pista_id) VALUES (?, ?, ?, ?, ?, ?)');
+  payload.roster.forEach(j => {
+    const dorsal = Number(j.dorsal);
+    if (!Number.isInteger(dorsal) || dorsal < 0 || dorsal > 99) return;
+    const nombre = cleanPistaText(j.nombre, 160);
+    let existente = porDorsal.get(dorsal);
+    if (!existente) {
+      const r = insertJugador.run(equipo.id, dorsal, nombre, cleanPistaText(j.posicion, 60), j.es_libero ? 1 : 0);
+      existente = { id: r.lastInsertRowid, dorsal, nombre };
+      porDorsal.set(dorsal, existente);
+      equipo.jugadores.push({ dorsal, nombre });
+    } else if (!existente.nombre && nombre) {
+      db.prepare('UPDATE jugadores_pista SET nombre = ? WHERE id = ?').run(nombre, existente.id);
+      existente.nombre = nombre;
+    }
+    insertRoster.run(partidoId, dorsal, nombre || existente.nombre || '', cleanPistaText(j.posicion, 60), j.es_libero ? 1 : 0, existente.id);
+  });
+
+  // La tablet no manda el cierre de cada set: se añade (fin_set) al terminar las acciones del set
+  // para que el informe y el resultado salgan igual que en un partido apuntado aquí.
+  const cerrarSet = (setNum) => {
+    const marcador = parciales[setNum - 1];
+    if (!marcador) return;
+    const [l, r] = marcador;
+    insertarAccionPista(db, {
+      partido_id: partidoId, dorsal: 0, rotacion: 1, tipo_accion: 'fin_set', subtipo: 'Ganador Set',
+      resultado: l > r ? 'local' : 'rival', set_numero: setNum, marcador_local: String(l), marcador_rival: String(r)
+    });
+  };
+  let setActual = null;
+  payload.acciones.forEach(a => {
+    if (setActual !== null && a.set_numero !== setActual) cerrarSet(setActual);
+    setActual = a.set_numero;
+    insertarAccionPista(db, { ...a, partido_id: partidoId });
+  });
+  if (setActual !== null) cerrarSet(setActual);
+
+  return { partidoId, duplicado: false, equipoId: equipo.id, equipoNombre: equipo.nombre, metodo };
+}
+
+const esPartidoTablet = (x) => x?.format === 'volleystats-tablet' && Array.isArray(x.acciones) && Array.isArray(x.roster);
+
+function leerJson(ruta) {
+  try { return JSON.parse(fs.readFileSync(ruta, 'utf-8')); } catch { return null; }
+}
+
+ipcMain.handle('pista:partidos:importFromTablet', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Importar partido de VolleyStats Tablet',
+    filters: [{ name: 'Partido de tablet (JSON)', extensions: ['json'] }],
+    properties: ['openFile']
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const payload = leerJson(result.filePaths[0]);
+  if (!payload) throw new Error('El archivo no es un JSON válido.');
+  if (!esPartidoTablet(payload)) throw new Error('Ese archivo no es un partido exportado desde VolleyStats Tablet.');
+
+  const db = getDBPista();
+  return db.transaction(() => importarPartidoTablet(db, payload, contextoImportacion(db)).partidoId)();
+});
+
+// Importación masiva: acepta uno o varios archivos (p. ej. de dos tablets) con todos los partidos.
+ipcMain.handle('pista:partidos:importBulk', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Importar todos los partidos de VolleyStats Tablet',
+    filters: [{ name: 'Exportación de tablet (JSON)', extensions: ['json'] }],
+    properties: ['openFile', 'multiSelections']
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const partidos = [];
+  let invalidos = 0;
+  result.filePaths.map(leerJson).forEach(x => {
+    if (x?.format === 'volleystats-tablet-bulk' && Array.isArray(x.partidos)) x.partidos.forEach(pt => (esPartidoTablet(pt) ? partidos.push(pt) : invalidos++));
+    else if (esPartidoTablet(x)) partidos.push(x);
+    else invalidos++;
+  });
+  if (!partidos.length) throw new Error('No hay partidos de VolleyStats Tablet en los archivos elegidos.');
+
+  const db = getDBPista();
+  return db.transaction(() => {
+    const ctx = contextoImportacion(db);
+    const equipos = new Map();
+    let importados = 0;
+    let duplicados = 0;
+    partidos.forEach(pt => {
+      const r = importarPartidoTablet(db, pt, ctx);
+      if (r.duplicado) { duplicados++; return; }
+      importados++;
+      const e = equipos.get(r.equipoId) || { id: r.equipoId, nombre: r.equipoNombre, partidos: 0, metodos: new Set() };
+      e.partidos++; e.metodos.add(r.metodo);
+      equipos.set(r.equipoId, e);
+    });
+    return { importados, duplicados, invalidos, equipos: [...equipos.values()].map(e => ({ ...e, metodos: [...e.metodos] })) };
+  })();
+});
+
+// Todo lo necesario para analizar un equipo: sus partidos (apuntados aquí o importados) con roster y acciones.
+ipcMain.handle('pista:equipos:getDatosAnalisis', (_event, equipoId) => {
+  const db = getDBPista();
+  const equipo = db.prepare('SELECT * FROM equipos_pista WHERE id = ?').get(equipoId);
+  if (!equipo) throw new Error('Equipo no encontrado.');
+  const jugadores = db.prepare('SELECT * FROM jugadores_pista WHERE equipo_id = ? ORDER BY dorsal').all(equipoId);
+  const partidos = db.prepare('SELECT * FROM partidos_pista WHERE equipo_id = ? ORDER BY fecha, id').all(equipoId).map(p => ({
+    ...p,
+    roster: db.prepare('SELECT * FROM roster_partido WHERE partido_id = ? ORDER BY dorsal').all(p.id),
+    acciones: db.prepare('SELECT * FROM acciones_pista WHERE partido_id = ? ORDER BY id').all(p.id)
+  }));
+  return { equipo, jugadores, partidos };
+});
+
 // ---- VIDEO PISTA ----
 const ytCache = new Map();
+
+// Proceso de ffmpeg en curso (para poder cancelarlo) y ajustes de calidad/resolución compartidos
+// por el generador de vídeos de pista y el de playa.
+let ffmpegPistaActivo = null;
+const CRF_POR_CALIDAD = { alta: 18, media: 23, baja: 28 };
+const ESCALA_POR_RESOLUCION = { '720': 'scale=-2:720', '1080': 'scale=-2:1080' };
+
+ipcMain.handle('pista:video:cancel', () => {
+  if (ffmpegPistaActivo) {
+    ffmpegPistaActivo.kill('SIGKILL');
+    ffmpegPistaActivo = null;
+    return true;
+  }
+  return false;
+});
+
+
+// Carpeta persistente (junto a la base de datos) donde se guardan los vídeos de YouTube ya
+// descargados, para no perderlos si el sistema limpia la carpeta temporal. Se comparte con
+// ipc-handlers.js (playa): mismo cálculo de nombre de archivo, así que ambas pantallas
+// reutilizan la misma descarga de un mismo vídeo.
+const getYoutubeCacheDir = () => path.join(app.getPath('userData'), 'youtube_cache');
 
 async function resolverVideoPath(partido, onProgress) {
   if (partido.video_tipo === 'local') {
@@ -370,7 +680,10 @@ async function resolverVideoPath(partido, onProgress) {
       return ytCache.get(partido.video_url);
     }
 
-    const tmpDir = path.join(os.tmpdir(), 'bvscouter_yt');
+    // En una carpeta persistente (no en la temporal del sistema): si se guardara en el
+    // temporal, Windows la puede vaciar solo, y el vídeo ya descargado se perdería y volvería
+    // a bajarse entero la próxima vez.
+    const tmpDir = getYoutubeCacheDir();
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
     const safeId = partido.video_url.replace(/[^a-zA-Z0-9]/g, '_').slice(-60);
@@ -390,6 +703,9 @@ async function resolverVideoPath(partido, onProgress) {
   throw new Error('Tipo de vídeo no soportado para generar highlights.');
 }
 
+// Acciones del mismo punto comparten clave; en datos antiguos se usa el marcador.
+const claveRally = (a) => (a.punto_num ? `${a.set_numero}_p${a.punto_num}` : `${a.set_numero}_${a.marcador_local}_${a.marcador_rival}`);
+
 ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filters) => {
   const db = getDBPista();
   
@@ -398,7 +714,11 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
     throw new Error('El partido no tiene un vídeo válido configurado.');
   }
 
-  const videoPath = await resolverVideoPath(partido);
+  // Si el vídeo es de YouTube y no está cacheado, esto puede tardar bastante en descargarlo:
+  // avisamos a la barra de progreso para que no parezca que el export está colgado en 0%.
+  const videoPath = await resolverVideoPath(partido, (prog) => {
+    _event.sender.send('pista:video:downloading', prog);
+  });
 
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: 'Guardar Vídeo',
@@ -410,7 +730,7 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
 
   if (canceled || !filePath) return null;
 
-  let query = 'SELECT id, video_timestamp, marcador_local, marcador_rival, set_numero, tipo_accion, subtipo, resultado, dorsal, rotacion FROM acciones_pista WHERE partido_id = ? AND video_timestamp > 0';
+  let query = 'SELECT * FROM acciones_pista WHERE partido_id = ? AND video_timestamp > 0';
   const params = [partidoId];
 
   if (filters.set_numero) {
@@ -454,29 +774,14 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
   // rallies que contienen uno de esos ataques.
   if (filters.modo === 'puntos_ataques') {
     const selectedIds = new Set(acciones.map(a => a.id));
-    let allQuery = 'SELECT id, video_timestamp, marcador_local, marcador_rival, set_numero, tipo_accion, subtipo, resultado, dorsal, rotacion FROM acciones_pista WHERE partido_id = ? AND video_timestamp > 0';
+    let allQuery = 'SELECT * FROM acciones_pista WHERE partido_id = ? AND video_timestamp > 0';
     const allParams = [partidoId];
     if (filters.set_numero) {
       allQuery += ' AND set_numero = ?';
       allParams.push(parseInt(filters.set_numero, 10));
     }
     const allAcciones = db.prepare(allQuery + ' ORDER BY id ASC').all(...allParams);
-    const rallies = [];
-    let rally = [];
-    const isTerminal = (a) => {
-      if (['tiempo_muerto', 'cambio'].includes(a.tipo_accion)) return false;
-      if (a.tipo_accion === 'rival' || a.tipo_accion === 'error_general') return true;
-      if (['recepcion', 'defensa', 'colocacion', 'freeball'].includes(a.tipo_accion)) return a.resultado === '=';
-      return ['#', '=', '/'].includes(a.resultado);
-    };
-    allAcciones.forEach(a => {
-      rally.push(a);
-      if (isTerminal(a)) {
-        rallies.push(rally);
-        rally = [];
-      }
-    });
-    if (rally.length) rallies.push(rally);
+    const rallies = resumirRallies(allAcciones).map(r => r.acciones);
     acciones = rallies.filter(group => group.some(a => selectedIds.has(a.id))).flat();
   }
   
@@ -492,28 +797,13 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
   if (filters.modo === 'puntos' || filters.modo === 'favoritos' || filters.modo === 'puntos_ataques') {
     const grupos = {};
     if (filters.modo === 'puntos' || filters.modo === 'puntos_ataques') {
-      const isTerminal = (a) => {
-        if (['tiempo_muerto', 'cambio'].includes(a.tipo_accion)) return false;
-        if (a.tipo_accion === 'rival' || a.tipo_accion === 'error_general') return true;
-        if (['recepcion', 'defensa', 'colocacion', 'freeball'].includes(a.tipo_accion)) return a.resultado === '=';
-        return ['#', '=', '/'].includes(a.resultado);
-      };
-      const rallies = [];
-      let rally = [];
-      [...acciones].sort((a, b) => a.id - b.id).forEach(a => {
-        rally.push(a);
-        if (isTerminal(a)) {
-          rallies.push(rally);
-          rally = [];
-        }
-      });
-      if (rally.length) rallies.push(rally);
+      const rallies = resumirRallies(acciones).map(r => r.acciones);
       // Con `ids` (botón de guardar de un punto) todo es un único clip.
       if (ids.length) grupos[0] = { acciones: [...acciones] };
       else rallies.forEach((group, index) => { grupos[index] = { acciones: group }; });
     } else {
       acciones.forEach(a => {
-        const key = `${a.set_numero}_${a.marcador_local}_${a.marcador_rival}`;
+        const key = claveRally(a);
         if (!grupos[key]) grupos[key] = { acciones: [] };
         grupos[key].acciones.push(a);
       });
@@ -541,7 +831,7 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
   } else {
     const grupos = {};
     acciones.forEach(a => {
-      const key = `${a.set_numero}_${a.marcador_local}_${a.marcador_rival}`;
+      const key = claveRally(a);
       if (!grupos[key]) {
         grupos[key] = {
           minTime: a.video_timestamp,
@@ -615,10 +905,35 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
   const mostrarAcciones = !!filters.mostrar_acciones;
   const textFiles = [];
   const sessionId = Date.now();
-  
-  let ffmpegArgs = ['-y'];
+  const crf = CRF_POR_CALIDAD[filters.calidad] ?? CRF_POR_CALIDAD.media;
+  const escala = ESCALA_POR_RESOLUCION[filters.resolucion]; // undefined = resolución original
+  // La portada exige que todos los clips compartan resolución (lo pide el filtro concat),
+  // así que solo se ofrece cuando se ha elegido una resolución explícita.
+  const conPortada = !!filters.portada && !!escala;
 
-  intervals.forEach((interval, i) => {
+  let ffmpegArgs = ['-y'];
+  let siguienteIndice = 0;
+
+  if (conPortada) {
+      const duracionPortada = 2.5;
+      const anchoPortada = filters.resolucion === '1080' ? 1920 : 1280;
+      const altoPortada = filters.resolucion === '1080' ? 1080 : 720;
+      ffmpegArgs.push('-f', 'lavfi', '-t', String(duracionPortada), '-i', `color=c=black:s=${anchoPortada}x${altoPortada}:r=25`);
+      if (hasAudio) ffmpegArgs.push('-f', 'lavfi', '-t', String(duracionPortada), '-i', 'anullsrc=r=44100:cl=stereo');
+      const titulo = String(filters.titulo || 'Resumen del partido').replace(/[':\\]/g, ' ');
+      const iPortada = siguienteIndice;
+      filterGraph += `[${iPortada}:v]drawtext=text='${titulo}':fontcolor=white:fontsize=54:x=(w-tw)/2:y=(h-th)/2[v${iPortada}];\n`;
+      if (hasAudio) {
+          filterGraph += `[${iPortada + 1}:a]anull[a${iPortada}];\n`;
+          concatInputs += `[v${iPortada}][a${iPortada}]`;
+      } else {
+          concatInputs += `[v${iPortada}]`;
+      }
+      siguienteIndice += hasAudio ? 2 : 1;
+  }
+
+  intervals.forEach((interval, idx) => {
+      const i = siguienteIndice + idx;
       const duration = interval.end - interval.start;
       ffmpegArgs.push('-ss', interval.start.toFixed(3), '-t', duration.toFixed(3), '-i', videoPath);
 
@@ -626,6 +941,7 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
       const text = setDelIntervalo ? ` ${String(interval.score).replace(/ /g, "")} (${setsAntesDe(setDelIntervalo)}) ` : ` ${interval.score} `;
       const conMarcador = filters.con_marcador !== false;
       let vFilters = ['setpts=PTS-STARTPTS'];
+      if (escala) vFilters.push(escala);
 
       if (conMarcador) {
           vFilters.push(`drawtext=text='${text}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=15:x=w-tw-30:y=30`);
@@ -642,7 +958,7 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
       }
 
       filterGraph += `[${i}:v]${vFilters.join(',')}[v${i}];\n`;
-      
+
       if (hasAudio) {
           filterGraph += `[${i}:a]asetpts=PTS-STARTPTS[a${i}];\n`;
           concatInputs += `[v${i}][a${i}]`;
@@ -650,23 +966,25 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
           concatInputs += `[v${i}]`;
       }
   });
-  
-  filterGraph += `${concatInputs}concat=n=${intervals.length}:v=1:a=${hasAudio ? 1 : 0}[outv]${hasAudio ? '[outa]' : ''}`;
-  
+
+  const totalClips = intervals.length + (conPortada ? 1 : 0);
+  filterGraph += `${concatInputs}concat=n=${totalClips}:v=1:a=${hasAudio ? 1 : 0}[outv]${hasAudio ? '[outa]' : ''}`;
+
   fs.writeFileSync(filterFilePath, filterGraph);
-  
+
   try {
       ffmpegArgs.push('-filter_complex_script', filterFilePath, '-map', '[outv]');
       if (hasAudio) {
           ffmpegArgs.push('-map', '[outa]');
       }
-      ffmpegArgs.push('-preset', 'superfast', filePath);
-      
-      const totalDuration = intervals.reduce((acc, curr) => acc + (curr.end - curr.start), 0);
-      
+      ffmpegArgs.push('-preset', 'superfast', '-crf', String(crf), filePath);
+
+      const totalDuration = intervals.reduce((acc, curr) => acc + (curr.end - curr.start), 0) + (conPortada ? 2.5 : 0);
+
       await new Promise((resolve, reject) => {
           const ffmpeg = spawn(getFfmpegPath(), ffmpegArgs);
-          
+          ffmpegPistaActivo = ffmpeg;
+
           ffmpeg.stderr.on('data', (data) => {
               const str = data.toString();
               const timeMatch = str.match(/time=(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
@@ -675,7 +993,7 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
                   const minutes = parseInt(timeMatch[2], 10);
                   const seconds = parseFloat(timeMatch[3]);
                   const currentTime = (hours * 3600) + (minutes * 60) + seconds;
-                  
+
                   if (totalDuration > 0) {
                       let pct = Math.round((currentTime / totalDuration) * 100);
                       if (pct > 100) pct = 100;
@@ -683,18 +1001,25 @@ ipcMain.handle('pista:video:generateHighlights', async (_event, partidoId, filte
                   }
               }
           });
-          
-          ffmpeg.on('close', (code) => {
+
+          ffmpeg.on('close', (code, signal) => {
+              ffmpegPistaActivo = null;
               if (code === 0) resolve();
+              else if (signal === 'SIGKILL' || signal === 'SIGTERM') reject(new Error('CANCELADO'));
               else reject(new Error('FFmpeg exited con código ' + code));
           });
           ffmpeg.on('error', reject);
       });
-      
+
       _event.sender.send('pista:video:progress', 100);
       shell.openPath(filePath);
       return filePath;
   } catch (err) {
+      ffmpegPistaActivo = null;
+      if (err.message === 'CANCELADO') {
+          try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e) {}
+          throw new Error('CANCELADO');
+      }
       console.error('Error con FFmpeg (Pista):', err);
       throw new Error('Fallo al generar el vídeo. FFmpeg no pudo procesarlo.');
   } finally {

@@ -369,7 +369,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 </div>
 
 <!-- ====== RESUMEN GLOBAL ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="resumen">
     <div class="section-title">Resumen Estadistico General</div>
     <div class="big-stat-grid">
         <div class="big-stat">
@@ -441,7 +441,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 </div>
 
 <!-- ====== SIDE-OUT ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="sideout">
     <div class="section-title">Analisis de Side-Out (K1)</div>
     <div class="two-col">
         <div class="card">
@@ -490,7 +490,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 <div class="page-break"></div>
 
 <!-- ====== ATAQUES K1 ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="ataquesK1">
     <div class="section-title">Distribucion de Ataques en K1 (Recepcion)</div>
     <div class="two-col">
         <div class="card">
@@ -510,7 +510,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 </div>
 
 <!-- ====== ATAQUES K2 ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="ataquesK2">
     <div class="section-title">Distribucion de Ataques en K2 (Defensa)</div>
     <div class="two-col">
         <div class="card">
@@ -530,7 +530,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 </div>
 
 <!-- ====== SAQUES ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="saque">
     <div class="section-title">Rendimiento de Saque</div>
     <div class="two-col">
         <div class="card">
@@ -552,7 +552,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 <div class="page-break"></div>
 
 <!-- ====== RECEPCION ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="recepcion">
     <div class="section-title">Calidad de Recepcion</div>
     <div class="two-col">
         <div class="card">
@@ -567,7 +567,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 </div>
 
 <!-- ====== TOP GOLPES ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="golpes">
     <div class="section-title">Top Golpes de Ataque (General)</div>
     <div class="two-col">
         <div class="card">
@@ -582,7 +582,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 </div>
 
 <!-- ====== BLOQUEOS ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="bloqueos">
     <div class="section-title">Bloqueos (${j1.totalBloqueos + j2.totalBloqueos} totales)</div>
     <div class="two-col">
         <div class="card">
@@ -608,7 +608,7 @@ export function generateCustomPdfHtml(partido, stats, j1Nombre, j2Nombre, accion
 
 ${notas ? `
 <!-- ====== NOTAS ====== -->
-<div class="section">
+<div class="section" data-pdf-sec="notas">
     <div class="section-title">Notas del Partido</div>
     <div class="notas-box">${notas}</div>
 </div>

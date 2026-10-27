@@ -87,7 +87,8 @@ async function initPistaMode() {
         import('./pages/pista/equipos-pista.js').then(m => m.registerEquiposPista()),
         import('./pages/pista/scouting-pista.js').then(m => m.registerScoutingPista()),
         import('./pages/pista/informe-pista.js').then(m => m.registerInformePista()),
-        import('./pages/pista/ajustes-pista.js').then(m => m.registerAjustesPista())
+        import('./pages/pista/ajustes-pista.js').then(m => m.registerAjustesPista()),
+        import('./pages/pista/estadisticas-equipo-pista.js').then(m => m.registerEstadisticasEquipoPista())
     ]);
 
     setupSidebarNavigation();

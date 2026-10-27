@@ -90,3 +90,11 @@ typings/
 
 # Electron-Forge
 out/
+
+# Salida de vite build suelta (Forge compila en .vite/)
+dist/
+
+# Ficheros locales de herramientas
+.claude/
+graphify-out/
+scratch/

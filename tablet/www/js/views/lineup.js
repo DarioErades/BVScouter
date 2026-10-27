@@ -1,6 +1,6 @@
 import { register, go } from '../nav.js';
 import { getMatch, saveMatch } from '../store.js';
-import { startSet, POS_SHORT } from '../engine.js';
+import { startSet, POS_SHORT, contarColocadores, rotateLineup } from '../engine.js';
 import { icon, esc, openSheet, toast } from '../ui.js';
 
 let m, lineup, serving, root;
@@ -24,6 +24,20 @@ const slotHtml = (n) => {
   </button>`;
 };
 
+// La rotación es la posición del colocador; solo se puede saber si hay uno único colocado.
+function rotacionLabel() {
+  const cols = Object.entries(lineup).filter(([, id]) => m.roster.find((p) => p.id === id)?.pos === 'S');
+  return cols.length === 1 ? `Rotación ${cols[0][0]}` : 'Rotación –';
+}
+
+// + sube el número de rotación (el colocador pasa de P1 a P2…) y − lo baja; al girar al revés
+// que en un side-out, el número que se ve cambia en el mismo sentido que el botón.
+function rotar(dir) {
+  const n = rotateLineup(lineup, dir);
+  lineup = Object.fromEntries(Object.entries(n).filter(([, id]) => id));
+  draw();
+}
+
 function draw() {
   const placed = new Set(Object.values(lineup));
   const ready = Object.keys(lineup).length === 6 && serving;
@@ -38,6 +52,11 @@ function draw() {
       <div class="lineup-wrap">
         <div>
           <div class="court"><div class="court-grid">${ORDEN.map(slotHtml).join('')}</div></div>
+          <div class="rot-bar card" style="padding:10px 12px">
+            <button class="icon-btn" data-act="rot-back" aria-label="Rotación anterior" ${Object.keys(lineup).length ? '' : 'disabled'}>${icon('minus')}</button>
+            <div class="lbl" style="font-size:15px">${rotacionLabel()}<br><span style="font-weight:600;font-size:12px">Gira a todos los jugadores de posición</span></div>
+            <button class="icon-btn" data-act="rot-fwd" aria-label="Rotación siguiente" ${Object.keys(lineup).length ? '' : 'disabled'}>${icon('plus')}</button>
+          </div>
           <p class="muted" style="margin:12px 4px 0">Toca cada posición para elegir jugador. La posición 1 (abajo a la derecha) es la del saque.</p>
         </div>
         <div style="display:flex;flex-direction:column;gap:14px">
@@ -76,6 +95,44 @@ function pick(slot) {
   });
 }
 
+// Si no hay un único colocador entre los titulares no se puede detectar sola la rotación: se
+// pregunta antes de empezar el set y se anota desde ahí.
+function preguntarRotacionInicial(n) {
+  return new Promise((resolve) => {
+    openSheet({
+      title: '¿En qué rotación estáis?',
+      html: `<p class="muted" style="margin:0 0 12px">
+        ${n === 0 ? 'No hay ningún colocador entre los titulares' : `Hay ${n} colocadores entre los titulares`}:
+        no se puede detectar la rotación sola. Dinos en qué rotación empezáis.</p>
+        <div class="grid-2">${[1, 2, 3, 4, 5, 6].map((r) => `<button class="btn" style="min-height:60px" data-rot="${r}">Rotación ${r}</button>`).join('')}</div>`,
+      onMount: (ov, api) => {
+        ov.addEventListener('click', (e) => {
+          const r = e.target.closest('[data-rot]')?.dataset.rot;
+          if (!r) return;
+          // Resolvemos antes de cerrar: api.close() también dispara onClose (resolve(null)) y,
+          // como una promesa solo atiende a la primera resolución, tenía que ganar esta.
+          resolve(Number(r));
+          api.close();
+        });
+      },
+      onClose: () => resolve(null)
+    });
+  });
+}
+
+async function empezar() {
+  const n = contarColocadores(m, lineup);
+  let rotacionManual;
+  if (n !== 1) {
+    rotacionManual = await preguntarRotacionInicial(n);
+    if (rotacionManual == null) return; // canceló, no arrancamos el set
+  }
+  startSet(m, lineup, serving, rotacionManual);
+  saveMatch(m);
+  toast(`Set ${m.live.set} en marcha`, 'good');
+  go('live', m.id);
+}
+
 register('lineup', (r, nav) => {
   root = r;
   m = getMatch(nav.id);
@@ -88,11 +145,7 @@ register('lineup', (r, nav) => {
     if (sv) { serving = sv.dataset.serve; return draw(); }
     const a = e.target.closest('[data-act]')?.dataset.act;
     if (a === 'home') return go('home');
-    if (a === 'start') {
-      startSet(m, lineup, serving);
-      saveMatch(m);
-      toast(`Set ${m.live.set} en marcha`, 'good');
-      go('live', m.id);
-    }
+    if (a === 'start') return empezar();
+    if (a === 'rot-fwd' || a === 'rot-back') return rotar(a === 'rot-fwd' ? -1 : 1);
   };
 });

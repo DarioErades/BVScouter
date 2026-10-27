@@ -1,8 +1,11 @@
 import { go } from './nav.js';
+import { aplicarTema, temaActual } from './tema.js';
 import './views/home.js';
 import './views/setup.js';
 import './views/lineup.js';
 import './views/live.js';
+import './views/settings.js';
+import './views/teams.js';
 
 // Dentro de la app de Android ocultamos la barra de estado para ganar pantalla.
 try { window.Capacitor?.Plugins?.StatusBar?.hide?.(); } catch (e) { /* solo en nativo */ }
@@ -14,7 +17,8 @@ try { window.Capacitor?.Plugins?.KeepAwake?.keepAwake?.(); } catch (e) { /* solo
 try {
   window.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     const sheet = document.querySelector('.overlay');
-    if (sheet) sheet.remove(); else go('home');
+    if (sheet) sheet.remove(); else aplicarTema(temaActual());
+go('home');
   });
 } catch (e) { /* solo en nativo */ }
 

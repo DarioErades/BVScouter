@@ -1,0 +1,26 @@
+services:
+  volleystats-ota:
+    build: .
+    container_name: volleystats-ota
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./datos:/datos
+    networks:
+      - coolify
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=coolify"
+      - "traefik.http.middlewares.volleystats-ota-a-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.volleystats-ota-http.rule=Host(`vps.darioerades.es`) && PathPrefix(`/volleystats-tablet`)"
+      - "traefik.http.routers.volleystats-ota-http.entrypoints=http"
+      - "traefik.http.routers.volleystats-ota-http.middlewares=volleystats-ota-a-https"
+      - "traefik.http.routers.volleystats-ota.rule=Host(`vps.darioerades.es`) && PathPrefix(`/volleystats-tablet`)"
+      - "traefik.http.routers.volleystats-ota.entrypoints=https"
+      - "traefik.http.routers.volleystats-ota.tls=true"
+      - "traefik.http.routers.volleystats-ota.tls.certresolver=letsencrypt"
+      - "traefik.http.services.volleystats-ota.loadbalancer.server.port=3000"
+
+networks:
+  coolify:
+    external: true

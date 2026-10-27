@@ -1,14 +1,28 @@
 apply plugin: 'com.android.application'
 
+// URL y token del servidor de actualizaciones OTA: se pueden sobrescribir con
+// -POTA_URL=... -POTA_TOKEN=... (o las variables de entorno equivalentes) al compilar el release.
+def otaUrl = project.hasProperty('OTA_URL') ? project.property('OTA_URL') : (System.getenv('OTA_URL') ?: 'https://vps.darioerades.es/volleystats-tablet')
+def otaToken = project.hasProperty('OTA_TOKEN') ? project.property('OTA_TOKEN') : (System.getenv('OTA_TOKEN') ?: '')
+
+// Firma del release: se lee de gradle.properties de usuario (~/.gradle/gradle.properties), nunca del repo.
+// Si no está configurada, el release simplemente queda sin firmar (como antes).
+def tieneFirmaRelease = project.hasProperty('RELEASE_STORE_FILE')
+
 android {
     namespace "es.darioerades.volleystats.tablet"
     compileSdk rootProject.ext.compileSdkVersion
+    buildFeatures {
+        buildConfig true
+    }
     defaultConfig {
         applicationId "es.darioerades.volleystats.tablet"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 8
+        versionName "8"
+        buildConfigField "String", "OTA_URL", "\"${otaUrl}\""
+        buildConfigField "String", "OTA_TOKEN", "\"${otaToken}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +30,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (tieneFirmaRelease) {
+            release {
+                storeFile file(project.property('RELEASE_STORE_FILE'))
+                storePassword project.property('RELEASE_STORE_PASSWORD')
+                keyAlias project.property('RELEASE_KEY_ALIAS')
+                keyPassword project.property('RELEASE_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (tieneFirmaRelease) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

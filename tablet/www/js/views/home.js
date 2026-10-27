@@ -1,5 +1,5 @@
 import { register, go } from '../nav.js';
-import { listMatches, deleteMatch, saveMatch } from '../store.js';
+import { listMatches, deleteMatch, saveMatch, saveTeam, setUltimoEquipo } from '../store.js';
 import { icon, esc, fmtDate, confirmDlg, toast, saveFile } from '../ui.js';
 import { matchResult } from '../engine.js';
 import { exportPayload, setScores } from '../stats.js';
@@ -40,6 +40,8 @@ function mount(root) {
       <span class="spacer"></span>
       <label class="btn" style="cursor:pointer">${icon('upload', 20)} Importar<input type="file" id="imp" accept=".json,application/json" hidden></label>
       <button class="btn primary big" data-act="new">${icon('plus', 22)} Nuevo partido</button>
+      <button class="icon-btn" data-act="equipos" aria-label="Equipos">${icon('users', 20)}</button>
+      <button class="icon-btn" data-act="ajustes" aria-label="Ajustes">${icon('settings', 20)}</button>
     </div>
     <div class="screen-body">
       ${matches.length
@@ -54,6 +56,8 @@ function mount(root) {
     const id = t.closest('[data-id]')?.dataset.id;
     const m = matches.find((x) => x.id === id);
     if (t.dataset.act === 'new') return go('setup');
+    if (t.dataset.act === 'ajustes') return go('ajustes');
+    if (t.dataset.act === 'equipos') return go('equipos');
     if (!m) return;
     if (t.dataset.act === 'resume') return go(m.status === 'lineup' ? 'lineup' : 'live', m.id);
     if (t.dataset.act === 'report') return openReport(m);
@@ -72,13 +76,22 @@ function mount(root) {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
+      if (data.format === 'volleystats-roster' && Array.isArray(data.roster)) {
+        // Plantilla exportada desde la app de escritorio: se guarda como equipo nuevo.
+        const nombre = data.team || 'Equipo importado';
+        const t = saveTeam({ id: data.teamUid, name: nombre, roster: data.roster });
+        setUltimoEquipo(t.id);
+        toast(`Equipo ${nombre} importado`, 'good');
+        go('setup');
+        return;
+      }
       if (!data.tabletMatch) throw new Error('formato');
       const m = { ...data.tabletMatch, id: uid(), createdAt: Date.now(), undo: [] };
       saveMatch(m);
       toast('Partido importado', 'good');
       mount(root);
     } catch (err) {
-      toast('Ese archivo no es un partido de VolleyStats Tablet', 'bad');
+      toast('Ese archivo no es de VolleyStats Tablet (ni un partido ni una plantilla)', 'bad');
     }
   });
 }

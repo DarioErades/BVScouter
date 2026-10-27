@@ -1,6 +1,6 @@
 import { router } from '../../router.js';
 import { showToast, formatDate, escapeHtml } from '../../utils/helpers.js';
-import { analizarEquipo } from '../../utils/estadisticas-equipo-pista.js';
+import { analizarEquipo, pct } from '../../utils/estadisticas-equipo-pista.js';
 
 let datos = null;
 let seleccion = new Set();
@@ -201,8 +201,6 @@ function render(container) {
 
     bind(container);
 }
-
-const pct = (a, b) => (b ? (a / b) * 100 : null);
 
 function bind(container) {
     container.querySelector('#btn-volver')?.addEventListener('click', () => router.navigate('equipos-pista'));

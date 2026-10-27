@@ -2,7 +2,7 @@
   "name": "bvscouter",
   "productName": "BVScouter",
   "version": "1.2.0",
-  "description": "My Electron application description",
+  "description": "Scouting y estadísticas de voleibol (playa y pista)",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
@@ -10,7 +10,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "node --check src/main.js && node --check src/ipc-handlers.js && node --check src/ipc-handlers-pista.js",
+    "lint": "node scripts/lint.mjs",
     "test": "node --test test/scoring.test.js test/stats-and-review.test.js test/stats-pista.test.js test/rallies-pista.test.js test/estadisticas-equipo-pista.test.js"
   },
   "keywords": [],

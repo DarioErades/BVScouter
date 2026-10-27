@@ -1,5 +1,5 @@
 import { router } from '../../router.js';
-import { showToast } from '../../utils/helpers.js';
+import { showToast, escapeHtml } from '../../utils/helpers.js';
 import { POSICIONES_PISTA } from '../../utils/constants-pista.js';
 
 let equiposCache = [];
@@ -479,10 +479,4 @@ async function refreshJugadores() {
         renderEquipos();
         renderRosterPanel();
     }
-}
-
-function escapeHtml(str) {
-    return String(str ?? '').replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[c]));
 }

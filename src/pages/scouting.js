@@ -1646,26 +1646,6 @@ function changeVideoSpeed(delta) {
     }
 }
 
-function setVideoSpeed(speed) {
-    const video = document.getElementById('local-video');
-    if (video) {
-        pararReversa();
-        scoutingState.videoSpeed = speed;
-        video.playbackRate = speed;
-        const indicator = document.getElementById('speed-indicator');
-        if (indicator) indicator.textContent = `${speed}x`;
-        showToast(`Velocidad: ${speed}x`, 'info');
-        return;
-    }
-    if (isYoutubeIframePresent()) {
-        scoutingState.videoSpeed = speed;
-        setYoutubeSpeed(speed);
-        const indicator = document.getElementById('speed-indicator');
-        if (indicator) indicator.textContent = `${speed}x`;
-        showToast(`Velocidad: ${speed}x`, 'info');
-    }
-}
-
 function pararReversa() {
     if (scoutingState.reverseInterval) {
         clearInterval(scoutingState.reverseInterval);
@@ -1818,31 +1798,6 @@ async function registrarAccion(forceResult = null) {
 
     updateCurrentActionText();
     showToast(`Acción guardada (J${data.jugador_id} - ${data.tipo_accion})`, 'success');
-}
-
-async function markLastAction(resultType) {
-    if (scoutingState.acciones.length === 0) return;
-    
-    const ultima = scoutingState.acciones[scoutingState.acciones.length - 1];
-    if (ultima.resultado === resultType) return;
-    
-    // deshacer el score de la accion anterior
-    if (ultima.resultado === 'punto') updateScore('local', -1);
-    else if (ultima.resultado === 'error' || ultima.resultado === 'bloqueado') updateScore('rival', -1);
-    
-    // actualizar db
-    await window.api.updateAccion(ultima.id, { resultado: resultType });
-    ultima.resultado = resultType;
-    
-    // auto-sumar punto
-    if (resultType === 'punto') {
-        updateScore('local', 1);
-    } else if (resultType === 'error' || resultType === 'bloqueado') {
-        updateScore('rival', 1);
-    }
-    
-    refreshTimelineAndStats();
-    showToast(`Última acción marcada como ${resultType}`, 'info');
 }
 
 function refreshTimelineAndStats() {

@@ -7,7 +7,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lint y tests
+        run: |
+          npm run lint
+          npm test
+
   build-windows:
+    needs: tests
     runs-on: windows-2022
     steps:
       - name: Checkout

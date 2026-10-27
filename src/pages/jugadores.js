@@ -1,7 +1,7 @@
 // pagina CRUD de jugadores
 
 import { router } from '../router.js';
-import { showToast } from '../utils/helpers.js';
+import { showToast, escapeHtml } from '../utils/helpers.js';
 import { NACIONALIDADES } from '../utils/constants.js';
 
 let jugadoresCache = [];
@@ -191,10 +191,4 @@ async function eliminarJugador(id) {
     jugadoresCache = jugadoresCache.filter(x => x.id !== id);
     showToast('Jugador eliminado', 'info');
     renderGrid();
-}
-
-function escapeHtml(str) {
-    return String(str ?? '').replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[c]));
 }
